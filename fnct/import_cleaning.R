@@ -8,20 +8,20 @@
 # LAST UPDATE: 11 May 2026
 #######################################################################################################
 
-import_data <- function() {
-  if (file.exists(here::here("data", "cache", "raw_data.fst"))) {
-    message("raw_data.fst already exists. Loading from cache.")
-    raw_data <- fst::read_fst(here::here("data", "cache", "raw_data.fst"), as.data.table = TRUE)
-  } else {
+import_data <- function(force = FALSE) {
+  cache_path <- here::here("data", "cache", "raw_data.fst")
+  if (!force && file.exists(cache_path)) {
+    message("Loading from cache. Use force = TRUE to rebuild.")
+    return(fst::read_fst(cache_path, as.data.table = TRUE))
+  }
 
-  message("raw_data.fst does not exist. Creating and writing to cache.")
+  message("Building raw_data.fst and writing to cache.")
   
   # Defining paths
   ukhls_raw <- here::here("data", "raw", "ukhls")
   
-  # Load necessary libraries
-  require(data.table)
-  require(haven)
+  library(data.table)
+  library(haven)
 
   waves <- letters[1:10]
 
@@ -138,17 +138,17 @@ import_data <- function() {
   raw_data <- merge(raw_data, benefits_collapsed, by = c("hidp", "wave"), all.x = TRUE)
 
   
-    fst::write_fst(raw_data, here::here("data", "cache", "raw_data.fst"))
-  }
+  fst::write_fst(raw_data, cache_path)
 
   return(raw_data)
 }
 
-clean_data <- function() {
-  # libraries
-  require(data.table)
+clean_data <- function(DT) {
+  library(data.table)
 
-  raw_data <- import_data()
+  if (!is.data.table(DT)) stop("Input must be a data.table")
+
+  raw_data <- DT
 
   # Defining aliases
   age_responsible <- 18
@@ -188,8 +188,8 @@ clean_data <- function() {
   ## then reconstruct age = constant + wave. handles non-consecutive waves correctly.
   setorder(raw_data, pidp, wave)
   raw_data[, age_adj := age_probe - wave]
-  raw_data[, age_adj := nafill(age_adj, type = "locf"), by = pidp]  # backward fill
-  raw_data[, age_adj := nafill(age_adj, type = "nocb"), by = pidp]  # forward fill
+  raw_data[, age_adj := nafill(age_adj, type = "locf"), by = pidp]  # forward fill
+  raw_data[, age_adj := nafill(age_adj, type = "nocb"), by = pidp]  # backward fill
   raw_data[is.na(age_probe), age_probe := as.integer(age_adj + wave)]
   raw_data[, age_adj := NULL]
 
@@ -230,23 +230,21 @@ clean_data <- function() {
   
   # job status recode: 1 if employed, 0 if unemployed or inactive
   raw_data[, les_c3 := fcase(
-  jbstat %in% c(1,2,5,12,13,14,15), 1L,
-  jbstat == 7,                       2L,
-  jbstat %in% c(3,6,8,10,11,97,9,4), 3L,
+  jbstat < 0,                           NA_integer_,
+  jbstat %in% c(1,2,5,12,13,14,15), 1L, # 1 = employed
+  jbstat == 7,                       2L, # 2 = students
+  jbstat %in% c(3,6,8,10,11,97,9,4), 3L, # 3 = unemployed or inactive
   default = NA_integer_
   )]
-  
-  raw_data[les_c3 < 0, les_c3 := NA_integer_]
 
-  ## people under 16 is student
-  raw_data[age_probe < age_seek_employment, les_c3 := 4L]
   ## people below age to leave home are not at risk of work, so set to not employed
   raw_data[age_probe < age_leave_parents, les_c3 := 3L]
+  ## people under 16 is student
+  raw_data[age_probe < age_seek_employment, les_c3 := 2L]
 
   # les_c4 is cloned but with a retired category
   raw_data[, les_c4 := les_c3]
   raw_data[jbstat == 4, les_c4 := 4L]
-  raw_data[les_c4 < 0, les_c4 := NA_integer_]
 
   # flag for adult children in the household (1 if has adult children, 0 if not)
   ## build parent tables
@@ -276,16 +274,8 @@ clean_data <- function() {
   )]
 
   ## Phase 3a — knock back to 0: parents retired (age_pension == 1 or les_c4 == 4)
-  raw_data[pension_mother == 1  & is.na(pension_father),  adultchildflag := 0L]
-  raw_data[is.na(pension_mother) & pension_father == 1,   adultchildflag := 0L]
-  raw_data[pension_mother == 1  & pension_father == 1,    adultchildflag := 0L]
-
-  raw_data[les_c4mother == 4L & is.na(les_c4father),     adultchildflag := 0L]
-  raw_data[is.na(les_c4mother) & les_c4father == 4L,     adultchildflag := 0L]
-  raw_data[les_c4mother == 4L & les_c4father == 4L,      adultchildflag := 0L]
-
-  raw_data[les_c4mother == 4L & pension_father == 1,     adultchildflag := 0L]
-  raw_data[les_c4father == 4L & pension_mother == 1,     adultchildflag := 0L]
+  raw_data[pension_mother == 1L | pension_father == 1L |
+           les_c4mother == 4L  | les_c4father == 4L,    adultchildflag := 0L]
 
   ## Phase 3b — knock back to 0: insufficient age gap (< 15 years)
   raw_data[(age_father - age_probe) <= 15 & is.na(age_mother),              adultchildflag := 0L]
@@ -313,6 +303,7 @@ clean_data <- function() {
   raw_data[, (sentinel_cols) := lapply(.SD, \(x) fifelse(x < 0, NA_real_, x)), .SDcols = sentinel_cols]
 
   raw_data[, ypnb := rowSums(.SD, na.rm = TRUE), .SDcols = sentinel_cols]
+  raw_data[, ypnb := fifelse(rowSums(!is.na(.SD)) == 0L, NA_real_, ypnb), .SDcols = sentinel_cols]
   raw_data[ypnb < 0, ypnb := 0]
   raw_data[, ypnb := ypnb / cpi]   # deflate to 2015 prices
 
@@ -392,7 +383,8 @@ clean_data <- function() {
   ## Main variable: economic distress dummy (1 if in financial distress, 0 if not)
   raw_data[, econ_dist_bin := fcase(
     econ_dist %in% 1:3, 0L,
-    econ_dist %in% 4:5, 1L
+    econ_dist %in% 4:5, 1L,
+    default = NA_integer_
   )]
 
   ####### Final modfications and recodes ########
@@ -447,8 +439,8 @@ clean_data <- function() {
   # recoding gor_dv==-9 to NA and fill gov_dv with last observation carried forward within person, then backward fill to handle leading NAs
   raw_data[gor_dv == -9, gor_dv := NA_integer_]
   setorder(raw_data, pidp, wave)
-  raw_data[, gor_dv := nafill(gor_dv, type = "locf"), by = pidp]  # backward fill
-  raw_data[, gor_dv := nafill(gor_dv, type = "nocb"), by = pidp]  # forward fill
+  raw_data[, gor_dv := nafill(gor_dv, type = "locf"), by = pidp]  # forward fill
+  raw_data[, gor_dv := nafill(gor_dv, type = "nocb"), by = pidp]  # backward fill
   
   # transform gor_dv into factor
   gor_labels <- c("North East", "North West", "Yorkshire and the Humber", "East Midlands", "West Midlands",
@@ -474,7 +466,7 @@ clean_data <- function() {
   raw_data[, c("age_probe", "gender_probe", "has_partner", "age_pension",
                "idmother", "age_mother", "pension_mother", "les_c4mother",
                "idfather", "age_father", "pension_father", "les_c4father",
-               "partnerid", "adultchildflag") := NULL]
+               "partnerid", "adultchildflag", "idhh", "idind") := NULL]
   
   # dropping other variables not needed
   raw_data[, c("jbstat", "unemp", "cpi", "econ_benefits_uc", "econ_benefits_lb", 
@@ -488,7 +480,7 @@ clean_data <- function() {
 }
 
 preproc_data <- function(DT) {
-  require(data.table)
+  library(data.table)
 
   if (!is.data.table(DT)) stop("Input must be a data.table")
 
@@ -497,7 +489,7 @@ preproc_data <- function(DT) {
 
   cols_to_keep <- c("pidp", "wave",
                     "sf12mcs_dv", "sf12pcs_dv", "log_income",
-                    "econ_emp_bin", "econ_dist", "econ_benefits", "gor_dv_fact",
+                    "econ_emp_bin", "econ_dist", "econ_dist_bin", "econ_benefits", "gor_dv_fact",
                     "gor_dv", "mastat_dv", "home_owner", "dnc", "age_dv",
                     "race", "sex_dv", "hiqual_dv")
 
@@ -546,7 +538,7 @@ preproc_data <- function(DT) {
   # ---- 5. Final column selection ----
   final_cols <- c("pidp", "wave", "response", "t0",
                   "sf12mcs_dv", "sf12pcs_dv", "log_income",
-                  "econ_emp_bin", "econ_dist", "econ_benefits",
+                  "econ_emp_bin", "econ_dist", "econ_dist_bin", "econ_benefits",
                   "gor_dv", "mastat_dv", "home_owner", "dnc", "dnc_fact", "age_dv",
                   "age_dv_base", "sex_dv_base", "gor_dv_base", "mastat_dv_base",
                   "home_owner_base", "dnc_base", "hiqual_dv_base", "race_base",
