@@ -3,3 +3,9 @@
 
 # Data files
 data/*
+
+# Quarto files
+.quarto
+
+# Figures
+figs/*
