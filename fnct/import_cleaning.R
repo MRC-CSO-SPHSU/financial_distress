@@ -505,7 +505,7 @@ preproc_data <- function(DT) {
   # impute slow-changing/time-invariant variables for synthetic (response=0) rows
   exp_data[, sex_dv    := sex_dv[!is.na(sex_dv)][1L], by = pidp]          # time-invariant: broadcast
   exp_data[, race      := race[!is.na(race)][1L],      by = pidp]          # time-invariant: broadcast
-  exp_data[, hiqual_dv := nafill(hiqual_dv, type = "locf"), by = pidp]     # education: forward only
+  exp_data[, hiqual_dv := nafill(hiqual_dv, type = "locf"), by = pidp][, `:=`(hiqual_dv = as.factor(hiqual_dv))]     # education: forward only, as factor
 
   # ---- 3. Wave-1 baseline snapshot ----
   base_cols <- c("pidp", "age_dv", "sex_dv", "gor_dv", "gor_dv_fact", "mastat_dv",
