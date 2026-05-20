@@ -415,8 +415,8 @@ comparison |>
   ) |>
   mutate(
     method = factor(method,
-                    levels = c("gform", "mi", "iptw_sw", "ltmle"),
-                    labels = c("G-formula", "G-Formula MI", "IPTW", "LTMLE")),
+                    levels = c("ltmle", "mi", "iptw_sw"),
+                    labels = c("LTMLE", "G-Formula MI", "IPTW")),
     intervention = factor(intervention,
                           levels = c("0-0", "1-0", "0-1", "1-1"),
                           labels = c("Never FD", "Early FD", "Late FD", "Always FD"))
