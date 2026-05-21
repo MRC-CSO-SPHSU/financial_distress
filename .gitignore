@@ -12,3 +12,12 @@ figs/*
 
 # Legacy code
 legacy/
+/.quarto/
+**/*.quarto_ipynb
+
+# Claude
+CLAUDE.md
+.claude
+
+# Reports
+report/*
