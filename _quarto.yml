@@ -3,11 +3,10 @@ project:
 
 toc: true
 number-sections: true
-bibliography: bibliography.bib
 
 format:
   html:
-    css: styles.css
+#    css: styles.css
     html-math-method: mathjax
     code-fold: true
     code-summary: "Show code"
