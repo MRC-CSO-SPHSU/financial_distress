@@ -29,13 +29,12 @@ source(here::here("fnct", "helpers.R"))
 ```
 
 # Model specification: Two waves of data, time-invariant covariates + PCS
-In this model, we include two waves of data (waves 9 and 10) and adjust for time-invariant covariates and 
-the physical component summary (PCS) score. The model is specified as follows:
-**Notation**
-- $TI_{cov}$: Time-invariant covariates:
-    - Sex
-    - Ethnicity
-    - Highest educational qualification
+In this model, we include two waves of data (waves 9 and 10) and adjust for time-invariant covariates and  the physical component summary (PCS) score. The model is specified as follows: \
+**Notation** \
+- $TI_{cov}$: Time-invariant covariates: \
+    - Sex \
+    - Ethnicity \
+    - Highest educational qualification \
 
 ```{r model1}
 #| label: model1
@@ -140,6 +139,8 @@ The main model is estimated using the longitudinal targeted maximum likelihood e
 
 ```{r model1}
 #| output: false
+#| include: false
+#| echo: true
 
 # Rescaling MCS to [0,1] (Yrange will be c(0,1)); ltmle rescales internally
 # for the logistic fluctuation step.
@@ -163,9 +164,10 @@ ltmle_data <- wide_data |>
          race_base,
          pcs_lagged_0,     # W:   PCS at wave 8 (baseline)
          econ_dist_bin_0,  # A_0: FD at wave 9
+         sf12mcs_dv_0,    # Y_0: MCS at wave 9 (between A_0 and A_1)
          pcs_lagged_1,     # L_1: PCS at wave 9 (between A_0 and A_1)
          econ_dist_bin_1,  # A_1: FD at wave 10
-         sf12mcs_dv_1)     # Y:   MCS at wave 10
+         sf12mcs_dv_1)     # Y_1: MCS at wave 10
 
 # ltmle's abar accepts a single regime (vector or n x numAnodes matrix for
 # dynamic regimes) OR a list of two regimes (for ATE/RR/OR contrasts).
@@ -182,8 +184,8 @@ fit_one_regime <- function(a) {
   ltmle(
     data = ltmle_data,
     Anodes = c("econ_dist_bin_0", "econ_dist_bin_1"),
-    Lnodes = "pcs_lagged_1",
-    Ynodes = "sf12mcs_dv_1",
+    Lnodes = c("pcs_lagged_0", "pcs_lagged_1"),
+    Ynodes = c("sf12mcs_dv_0", "sf12mcs_dv_1"),
     survivalOutcome = FALSE,
     abar = a,
     SL.library = sl_libs,
@@ -268,6 +270,10 @@ regimes_2 <- tibble(intervention = regimes |>
 
 ## IPTW
 ```{r iptw}
+#| output: false
+#| include: false
+#| echo: false
+
 # Denominator models for IPTW
 ## P(econ_dist_bin | sex, pcs_lagged, econ_dist_bin)
 d0 <- glm(econ_dist_bin_0 ~ sex_dv_base * hiqual_dv_base * race_base * pcs_lagged_0, data = wide_data, family = binomial())
@@ -297,7 +303,7 @@ if (!requireNamespace("cobalt", quietly = TRUE)) {
   library(cobalt)
 }
 ## unstabilized weights
-cobalt::bal.tab(
+w_plot <- cobalt::bal.tab(
   list(
     econ_dist_bin_0 ~ sex_dv_base + pcs_lagged_0,
     econ_dist_bin_1 ~ sex_dv_base + pcs_lagged_1 + econ_dist_bin_0
@@ -311,10 +317,10 @@ cobalt::bal.tab(
   theme(panel.grid.minor = element_blank())
 
 ## stabilized weights
-cobalt::bal.tab(
+sw_plot <- cobalt::bal.tab(
   list(
-    econ_dist_bin_0 ~ sex_dv_base + pcs_lagged_0,
-    econ_dist_bin_1 ~ sex_dv_base + pcs_lagged_1 + econ_dist_bin_0
+    econ_dist_bin_0 ~ sex_dv_base + hiqual_dv_base + race_base + pcs_lagged_0,
+    econ_dist_bin_1 ~ sex_dv_base + hiqual_dv_base + race_base + pcs_lagged_1 + econ_dist_bin_0
   ),
   data = wide_data,
   weights = sw
@@ -335,8 +341,13 @@ summary(iptw_model_sw)
 ```
 
 # Results
+
 ## Combining results from all methods
 ```{r results}
+#| output: true
+#| include: true
+#| echo: false
+
 # Combine results into a single data frame for plotting
 
 ## IPTW results extraction function
@@ -400,12 +411,13 @@ comparison <- ltmle_results |>
 
 tab_models <- comparison |>
   knitr::kable(digits = 3)
-
 ```
-
 
 ## Plotting results
 ```{r plot_results}
+#| output: true
+#| include: true
+
 # Combine results into a single data frame for plotting
 comparison |>
   pivot_longer(
