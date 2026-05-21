@@ -54,10 +54,10 @@ intervention_pattern_2 <- expand_grid(0:1, 0:1) |>
 ```
 
 # Model specification
-We specify a simple model with two time points (waves 9 and 10). The exposure is financial distress at waves 9 and 10 (with wave 8 as a lagged covariate). The outcome is the MCS score at wave 10, and the exposure is employment status (econ_emp_bin) at waves 9 and 10. We also include the following covariates:
- - Time-invariant: sex
- - Time-varying: PCS score at waves 8 and 9, as well as PCS at wave 8 as lagged covariate.
-The DAG for this model is as follows:
+We specify a simple model with two time points (waves 9 and 10). The exposure is financial distress at waves 9 and 10 (with wave 8 as a lagged covariate). The outcome is the MCS score at wave 10, and the exposure is employment status (econ_emp_bin) at waves 9 and 10. We also include the following covariates: \
+ - **Time-invariant:** sex \
+ - **Time-varying:** PCS score at waves 8 and 9, as well as PCS at wave 8 as lagged covariate. \
+The DAG for this model is as follows: \
 
 ```{r dag-model-spec}
 #| echo: false
@@ -114,9 +114,11 @@ DiagrammeR::grViz("
 ```
 
 # First model: `gformula` with two time points
-Interventions of interest are financial distress (FD). We will compare the following interventions:
-- Intervention 1: No financial distress at either time point (fin_dist_bin = 0-0)
-- Intervention 2: Sustained financial distress (fin_dist_bin = 1-1)
+Interventions of interest are financial distress (FD). We will compare the following interventions: \
+- **Intervention 1:** No financial distress at either time point (`econ_dist_bin` = 0-0) \
+- **Intervention 2:** Early financial distress (`econ_dist_bin` = 1-0) \
+- **Intervention 3:** Late financial distress (`econ_dist_bin` = 0-1) \
+- **Intervention 4:** Sustained financial distress (`econ_dist_bin` = 1-1) \
 
 ```{r gformula-pip}
 outcome_type <- "continuous_eof"
@@ -250,11 +252,8 @@ wide_data <- final_data_wide |>
   )
 ```
 
-
-
 ```{r gformula-mi}
 #| output: false
-#| echo: false
 
 regimes <- dplyr::tibble(a = 0:1, b = 0:1) |>
   expand.grid() |>
@@ -311,9 +310,11 @@ mi_results <- outvals |>
 ```
 
 # Third model: IPTW with two time points
-We will use inverse probability of treatment weighting (IPTW) to estimate the effect of financial distress on MCS score at wave 10. If both the treatment and the outcome models show similar results, this would suggest that the results are robust to model specification.
+We will use inverse probability of treatment weighting (**IPTW**) to estimate the effect of financial distress on MCS score at wave 10. If both the treatment and the outcome models show similar results, this would suggest that the results are robust to model specification.
 
 ```{r data-iptw}
+#| output: false
+
 # Denominator models for IPTW
 ## P(econ_dist_bin | sex, pcs_lagged, econ_dist_bin)
 d0 <- glm(econ_dist_bin_0 ~ sex_dv_base * pcs_lagged_0, data = wide_data, family = binomial())
@@ -342,8 +343,16 @@ if (!requireNamespace("cobalt", quietly = TRUE)) {
   install.packages("cobalt")
   library(cobalt)
 }
+```
+
+## Love plots for balance after weighting
+```{r balance-iptw}
+#| output: true
+#| echo: false
+#| include: true
+
 ## unstabilized weights
-cobalt::bal.tab(
+w_plot <- cobalt::bal.tab(
   list(
     econ_dist_bin_0 ~ sex_dv_base + pcs_lagged_0,
     econ_dist_bin_1 ~ sex_dv_base + pcs_lagged_1 + econ_dist_bin_0
@@ -353,11 +362,10 @@ cobalt::bal.tab(
 ) |>
   cobalt::love.plot(thresholds = c(m = 0.1), stars = "raw") +
   theme_bw() +
-  labs(title = "Balance after IPTW weighting") +
   theme(panel.grid.minor = element_blank())
 
 ## stabilized weights
-cobalt::bal.tab(
+sw_plot <- cobalt::bal.tab(
   list(
     econ_dist_bin_0 ~ sex_dv_base + pcs_lagged_0,
     econ_dist_bin_1 ~ sex_dv_base + pcs_lagged_1 + econ_dist_bin_0
@@ -366,10 +374,20 @@ cobalt::bal.tab(
   weights = sw
 ) |>
   cobalt::love.plot(thresholds = c(m = 0.1), stars = "raw") +
-  theme_bw() +
-  labs(title = "Balance after IPTW weighting") +
+  theme_bw()+
   theme(panel.grid.minor = element_blank())
 
+cowplot::plot_grid(
+  sw_plot, # stabilized weights plot
+  w_plot, # unstabilized weights plot
+  labels = c("Stabilized", "Unstabilized"),
+  label_x = 1, hjust = 1.1,
+  nrow = 2
+)
+```
+
+```{r iptw-model}
+#| output: false
 # Outcome model weighted by IPTW
 iptw_model <- lm(sf12mcs_dv_1 ~ econ_dist_bin_0 + econ_dist_bin_1, data = wide_data, weights = w)
 
@@ -380,8 +398,11 @@ summary(iptw_model)
 summary(iptw_model_sw)
 ```
 
-# Results accoding to treatment strategy
 ```{r iptw-results}
+#| output: false
+
+# Results according to each modeled strategy
+
 # All four treatment strategies, plugged into the fitted MSM.
 # Factor levels must match wide_data exactly (lm() stores them in
 # iptw_model$xlevels and predict() rejects any new ones).
@@ -410,10 +431,12 @@ iptw_results <- extract_iptw(iptw_model, "iptw_u") |>
 ```
 
 # Fourth model: LTMLE with two time points
-We will use LTMLE with two time points to estimate the effect of financial distress on MCS score at wave 10.
+We will use **LTMLE** with two time points to estimate the effect of financial distress on MCS score at wave 10.
 This model will provide a doubly robust estimate of the effect of financial distress on MCS score at wave 10, which is consistent if either the treatment model or the outcome model is correctly specified.
 
 ```{r ltmle data}
+#| output: false
+
 # ltmle requires wide data with columns in temporal order:
 #   W (baseline) -> L_t -> A_t -> Y_t for each t.
 # We rescale MCS to [0,1] (Yrange will be c(0,1)); ltmle rescales internally
@@ -436,9 +459,10 @@ ltmle_data <- wide_data |>
   select(sex_dv_base,
          pcs_lagged_0,     # W:   PCS at wave 8 (baseline)
          econ_dist_bin_0,  # A_0: FD at wave 9
+         sf12mcs_dv_0,    # Y_0: MCS at wave 9 (between A_0 and A_1)
          pcs_lagged_1,     # L_1: PCS at wave 9 (between A_0 and A_1)
          econ_dist_bin_1,  # A_1: FD at wave 10
-         sf12mcs_dv_1)     # Y:   MCS at wave 10
+         sf12mcs_dv_1)     # Y_1: MCS at wave 10
 
 # ltmle's abar accepts a single regime (vector or n x numAnodes matrix for
 # dynamic regimes) OR a list of two regimes (for ATE/RR/OR contrasts).
@@ -455,8 +479,8 @@ fit_one_regime <- function(a) {
   ltmle(
     data = ltmle_data,
     Anodes = c("econ_dist_bin_0", "econ_dist_bin_1"),
-    Lnodes = "pcs_lagged_1",
-    Ynodes = "sf12mcs_dv_1",
+    Lnodes = c("pcs_lagged_0", "pcs_lagged_1"),
+    Ynodes = c("sf12mcs_dv_0", "sf12mcs_dv_1"),
     survivalOutcome = FALSE,
     abar = a,
     SL.library = sl_libs,
@@ -490,6 +514,10 @@ ltmle_results <- purrr::imap_dfr(ltmle_fits, function(fit, label) {
 
 # Comparing results between all models
 ```{r compare-results}
+#| output: true
+#| echo: false
+#| include: true
+
 comparison <- gform_results |>
   filter(intervention %in% c("0-0", "0-1", "1-0", "1-1")) |>
   left_join(mi_results, by = c("intervention" = "intervention")) |>
@@ -499,10 +527,17 @@ comparison <- gform_results |>
 
 tab_models <- comparison |>
   knitr::kable(digits = 3)
+
+print(tab_models)
 ```
 
-# Graphs
+# Graphical comparison
 ```{r plot-results}
+#| output: true
+#| echo: false
+#| include: true
+
+
 # One panel per method (faceted vertically); within each panel, the four
 # interventions are shown as coloured points + 95% CI. Shape is dropped
 # because facet already distinguishes methods.
