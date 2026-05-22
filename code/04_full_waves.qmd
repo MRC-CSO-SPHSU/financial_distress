@@ -37,7 +37,6 @@ In this model, we include 3 waves of data (waves 3 to 5) and adjust for time-inv
     - Highest educational qualification
 
 ```{r model1}
-#| label: model1
 #| fig-cap: "Estimated mean MCS scores at wave 5, adjusting for time-invariant covariates and PCS score. Nodes are summarised by time point to avoid clutter."
 #| fig-width: 8
 #| fig-height: 10
@@ -150,7 +149,7 @@ wide_data <- final_data |>
 # Main model: LTMLE with SuperLearner
 The main model is estimated using the longitudinal targeted maximum likelihood estimation (LTMLE) method with SuperLearner for model fitting. The SuperLearner library includes a variety of algorithms, such as generalized linear models, random forests, and gradient boosting machines. The results are presented in the figure below, which shows the estimated mean MCS scores at wave 10 by intervention group and method, adjusting for time-invariant covariates and PCS score.
 
-```{r model1}
+```{r ltmle}
 #| output: false
 
 # Rescaling MCS to [0,1] (Yrange will be c(0,1)); ltmle rescales internally
@@ -512,6 +511,8 @@ comparison <- ltmle_results |>
 
 tab_models <- comparison |>
   knitr::kable(digits = 3)
+
+print(tab_models)
 ```
 
 ## Plotting results
