@@ -1,5 +1,5 @@
 ---
-title: "Full waves: eight waves of data"
+title: "Full waves: three waves of data"
 author: "Darwin Del Castillo"
 format: 
   docx:
