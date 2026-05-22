@@ -171,7 +171,7 @@ method_list[c("sex_dv_base", "hiqual_dv_base", "race_base",
 # predictor matrix for mice imputation
 wide_mids <- mice(data = wide_data_mi,
                   defaultMethod = c("pmm", "logreg", "polyreg", "polr"), 
-                  m = 5, 
+                  m = 35, 
                   maxit = 15,
                   seed = seed_random,
                   method = method_list)
