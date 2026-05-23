@@ -30,15 +30,17 @@ source(here::here("fnct", "helpers.R"))
 ```
 
 # Model specification: Two waves of data, time-invariant covariates + PCS
-In this model, we include 3 waves of data (waves 3 to 5) and adjust for time-invariant covariates and the physical component summary (PCS) score. The model is specified as follows:
-**Notation**
-- $TI_{cov}$: Time-invariant covariates:
-    - Sex
-    - Ethnicity
-    - Highest educational qualification
+In this model, we include 3 waves of data (waves 3 to 5) and adjust for time-invariant covariates and the physical component summary (PCS) score. The model is specified as follows: \
+**Notation** \
+- $TI_{cov}$: Time-invariant covariates: \
+    - Sex \
+    - Ethnicity \
+    - Highest educational qualification \
 
 ```{r model1}
 #| label: model1
+#| echo: false
+#| include: true
 #| fig-cap: "Estimated mean MCS scores at wave 5, adjusting for time-invariant covariates and PCS score. Nodes are summarised by time point to avoid clutter."
 #| fig-width: 8
 #| fig-height: 10
@@ -137,6 +139,7 @@ seed_random <- 20260522
 ```
 
 ```{r data_prep_wide}
+#| output: false
 # Reshaping to wide format
 wide_data <- final_data |>
   mutate(econ_dist_bin = as.factor(econ_dist_bin)) |>
@@ -155,6 +158,7 @@ wide_data <- final_data |>
 
 # Multiple imputation (wide format)
 ```{r mice-gformula}
+#| output: false
 wide_data_mi <- wide_data |>
   select(-pidp)
 
@@ -182,6 +186,8 @@ wide_mids <- mice(data = wide_data_mi,
 #| fig-width: 12
 #| fig-height: 14
 #| fig-align: center
+#| output: false
+#| include: false
 
 # Diagnostic plots for mice imputation
 bwplot(wide_mids)
@@ -285,6 +291,9 @@ densityplot(wide_mids, ~ hiqual_dv_base)
 
 # `mice` positivity check
 ```{r mice-positivity}
+#| output: false
+#| include: true
+
 positivity_check <- function(mids_obj, data_list) {
     map(data_list, \(dat) {
         dat |>
@@ -428,6 +437,8 @@ ltmle_results <- purrr::imap_dfr(ltmle_fits, function(fits_per_imp, label) {
 
 ### Imputing counterfactual outcomes under each regime using `gFormulaMI`
 ```{r gformula-mi}
+#| include: false
+#| output: false
 regimes <- dplyr::tibble(a = 0:1, b = 0:1, c = 0:1) |>
   expand.grid() |>
   arrange(a, b, c) |>
@@ -479,6 +490,9 @@ regimes_3 <- tibble(intervention = regimes |>
 ## IPTW with multiple imputation
 
 ```{r iptw-mi}
+#| output: false
+#| include: false
+
 # As the mids object contains different imputed datasets, we need to use each dataset for the IPTW calculation.
 
 # Fit denominator models, build per-imputation IPTW weights, and run the
@@ -518,6 +532,9 @@ summary(iptw_pool)
 
 ### Table with results from all models
 ```{r table-results}
+#| output: true
+#| include: true
+
 ## IPTW results
 ## IPTW results extraction function
 
@@ -602,6 +619,8 @@ comparison <- ltmle_results |>
   left_join(mi_results, by = "intervention") |>
   left_join(iptw_results, by = "intervention") |>
   relocate("intervention")
+
+comparison |> knitr::kable(digits = 3)
 ```
 
 ```{r plot_results}
