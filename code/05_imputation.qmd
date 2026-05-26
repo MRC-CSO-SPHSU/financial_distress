@@ -429,7 +429,7 @@ flat_fits <- furrr::future_map2(
   work_grid$imp_idx,
   ltmle_fit_one,
   .options  = furrr::furrr_options(
-    seed     = TRUE,
+    seed     = seed_random,
     packages = c("ltmle", "SuperLearner",
                  "ranger", "glmnet", "gam", "arm")
   ),
@@ -695,7 +695,6 @@ comparison |>
   facet_wrap(~method, ncol = 1) +
   theme(panel.grid.minor = element_blank())
 
-# Idiomatic order — filename first, plot second:
 ggsave(
   filename = here::here("figs", "results_comparison.png"),
   plot     = results_comparison,
