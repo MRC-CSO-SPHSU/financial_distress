@@ -25,6 +25,7 @@ pacman::p_load(gfoRmula,
                colorBlindness,
                ltmle,
                mice,
+               mori,
                SuperLearner)
 
 source(here::here("fnct", "import_cleaning.R"))
@@ -417,8 +418,8 @@ work_grid <- tidyr::expand_grid(
   imp_idx      = seq_along(ltmle_data_list)
 )
 
-future::plan(future::multisession,
-             workers = max(parallel::detectCores() - 1, 1))
+workers <- parallelly::availableCores(methods = "Slurm")
+future::plan(future::multisession, workers = workers)
 
 message("Starting LTMLE parallel: ", nrow(work_grid),
         " (regime x imputation) fits across ", future::nbrOfWorkers(), " workers")
