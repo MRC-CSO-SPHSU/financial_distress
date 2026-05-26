@@ -418,7 +418,7 @@ work_grid <- tidyr::expand_grid(
 )
 
 future::plan(future::multisession,
-             workers = max(parallel::detectCores() - 2, 1))
+             workers = max(parallel::detectCores() - 1, 1))
 
 message("Starting LTMLE parallel: ", nrow(work_grid),
         " (regime x imputation) fits across ", future::nbrOfWorkers(), " workers")
