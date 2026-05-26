@@ -9,7 +9,7 @@ editor: source
 ---
 
 # Data
-Data comes from the UK Household Longitudinal Study (UKHLS), also known as Understanding Society. We use data from waves 3 and 10, which were collected from 2011 to 2020. The sample is restricted to individuals with complete data on the outcome and covariates at both time points.
+Data comes from the UK Household Longitudinal Study (UKHLS), also known as Understanding Society. We use data from waves 3 and 10, which were collected from 2011 to 2020. 
 
 ```{r setup}
 #| output: false
@@ -19,6 +19,8 @@ pacman::p_load(gfoRmula,
                gFormulaMI,
                DiagrammeR,
                tidyverse,
+               purrr,
+               furrr,
                magrittr,
                colorBlindness,
                ltmle,
@@ -96,6 +98,9 @@ DiagrammeR::grViz("
                   E2 -> Y2
                   E3 -> Y3
 
+                  Y1 -> C2
+                  Y2 -> C3
+
                   {rank=min; TI}
                   {rank=same; C1, C2, C3}
                   {rank=same; E1, E2, E3}
@@ -159,26 +164,30 @@ wide_data <- final_data |>
 # Multiple imputation (wide format)
 ```{r mice-gformula}
 #| output: false
-wide_data_mi <- wide_data |>
-  select(-pidp)
+wide_data$pidp <- as.numeric(wide_data$pidp)
 
-method_list <- mice::make.method(wide_data_mi)
-method_list[c("sex_dv_base", "hiqual_dv_base", "race_base", 
+method_list <- mice::make.method(wide_data)
+method_list[c("pidp", "sex_dv_base", "hiqual_dv_base", "race_base", 
               "pcs_lagged_0", "econ_dist_bin_0", "sf12mcs_dv_0", 
               "pcs_lagged_1", "econ_dist_bin_1", "sf12mcs_dv_1",
               "pcs_lagged_2", "econ_dist_bin_2", "sf12mcs_dv_2")] <-
-                c("", "polr", "logreg", 
+                c("", "logreg", "polr", "logreg", 
                   "pmm", "logreg", "pmm", 
                   "pmm", "logreg", "pmm",
                   "pmm", "logreg", "pmm")
 
+pred_mat <- make.predictorMatrix(wide_data)
+pred_mat[, "pidp"] <- 0 # id variable
+pred_mat["pidp", ] <- 0 # no variable should predict id variable
+
 # predictor matrix for mice imputation
-wide_mids <- mice(data = wide_data_mi,
+wide_mids <- mice(data = wide_data,
                   defaultMethod = c("pmm", "logreg", "polyreg", "polr"), 
-                  m = 35, 
-                  maxit = 15,
+                  m = 5, # final run should be 35
+                  maxit = 10, # final run should be 15
                   seed = seed_random,
-                  method = method_list)
+                  method = method_list,
+                  predictorMatrix = pred_mat)
 ```
 
 ## Additional: mice diagnostics
@@ -294,20 +303,26 @@ densityplot(wide_mids, ~ hiqual_dv_base)
 #| output: false
 #| include: true
 
-positivity_check <- function(mids_obj, data_list) {
-    map(data_list, \(dat) {
-        dat |>
-            group_by(econ_dist_bin_0,
-                     econ_dist_bin_1,
-                     econ_dist_bin_2) |>
-            summarise(n = n(), .groups = "drop")
-    })
+positivity_results <- function(mids_obj) {
+  mice::complete(mids_obj, action = "long", include = FALSE) |>
+    group_by(.imp,
+             econ_dist_bin_0,
+             econ_dist_bin_1,
+             econ_dist_bin_2) |>
+    summarise(n = n(), .groups = "drop") |>
+    group_by(econ_dist_bin_0,
+             econ_dist_bin_1,
+             econ_dist_bin_2) |>
+    summarise(
+      mean_n = round(mean(n), 0),
+      min_n  = min(n),
+      max_n  = max(n),
+      n_imp_with_zero = sum(n == 0),
+      .groups = "drop"
+    )
 }
 
-positivity_results <- positivity_check(wide_mids, 
-                                       mice::complete(wide_mids, action = "all"))
-
-print(positivity_results)
+print(positivity_results(wide_mids))
 ```
 
 # Main analysis: LTMLE with multiple imputation
@@ -318,12 +333,11 @@ print(positivity_results)
 # Rescaling MCS to [0,1] (Yrange will be c(0,1)); ltmle rescales internally
 # for the logistic fluctuation step.
 
-sl_libs <- c("SL.glm", "SL.gam")
-MCS_RANGE <- c(0, 1)
+sl_libs <- c("SL.mean", "SL.glm", "SL.bayesglm", "SL.gam", "SL.ranger")
 
 # Reordering each imputed dataset to match the ltmle spec:
 
-ltmle_prep <- function(mira_obj, data_list) {
+ltmle_prep <- function(data_list) {
     map(data_list, \(dat) {
       dat |>
         mutate(
@@ -349,8 +363,7 @@ ltmle_prep <- function(mira_obj, data_list) {
     })
 }
 
-ltmle_data_list <- ltmle_prep(wide_mids, 
-                              mice::complete(wide_mids, action = "all"))
+ltmle_data_list <- ltmle_prep(mice::complete(wide_mids, action = "all"))
 
 regimes <- list(
   "0-0-0" = c(0, 0, 0),
@@ -380,28 +393,55 @@ gform <- c(
     econ_dist_bin_2 = "econ_dist_bin_2 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_2 + econ_dist_bin_0 + econ_dist_bin_1"
 )
 
-# this function will run ltmle for one regime across each imputed dataset, returning a list of ltmle fits that can be pooled with mice::pool()
+# Parallel sweep over (regime x imputation) pairs. We flatten to a single
+# parallel layer to avoid oversubscribing cores and reshape the flat result back
+# into the regime-keyed list the downstream pooling code expects.
 
-fit_one_regime_per_imp <- function(regime_value, data) {
-    map(data, \(dat) {
-            ltmle(
-                data = dat,
-                Anodes = c("econ_dist_bin_0", "econ_dist_bin_1", "econ_dist_bin_2"),
-                Lnodes = c("pcs_lagged_0", "pcs_lagged_1", "pcs_lagged_2"),
-                Ynodes = c("sf12mcs_dv_0", "sf12mcs_dv_1", "sf12mcs_dv_2"),
-                survivalOutcome = FALSE,
-                Qform = Qform,
-                gform = gform,
-                abar = regime_value,
-                SL.library = sl_libs,
-                estimate.time = FALSE,
-                variance.method = "ic",
-                Yrange = MCS_RANGE
-            )
-    })
-}
+ltmle_fit_one <- \(regime_label, imp_idx) ltmle(
+    data = ltmle_data_list[[imp_idx]],
+    Anodes = c("econ_dist_bin_0", "econ_dist_bin_1", "econ_dist_bin_2"),
+    Lnodes = c("pcs_lagged_0", "pcs_lagged_1", "pcs_lagged_2"),
+    Ynodes = c("sf12mcs_dv_0", "sf12mcs_dv_1", "sf12mcs_dv_2"),
+    survivalOutcome = FALSE,
+    Qform = Qform,
+    gform = gform,
+    abar = regimes[[regime_label]],
+    SL.library = sl_libs,
+    estimate.time = FALSE,
+    variance.method = "ic",
+    Yrange = c(0, 1)
+  )
 
-ltmle_fits <- purrr::map(regimes, fit_one_regime_per_imp, data = ltmle_data_list)
+work_grid <- tidyr::expand_grid(
+  regime_label = names(regimes),
+  imp_idx      = seq_along(ltmle_data_list)
+)
+
+future::plan(future::multisession,
+             workers = max(parallel::detectCores() - 2, 1))
+
+message("Starting LTMLE parallel: ", nrow(work_grid),
+        " (regime x imputation) fits across ", future::nbrOfWorkers(), " workers")
+
+t_start <- Sys.time()
+flat_fits <- furrr::future_map2(
+  work_grid$regime_label,
+  work_grid$imp_idx,
+  ltmle_fit_one,
+  .options  = furrr::furrr_options(
+    seed     = TRUE,
+    packages = c("ltmle", "SuperLearner",
+                 "ranger", "glmnet", "gam", "arm")
+  ),
+  .progress = TRUE
+)
+t_end <- Sys.time()
+message("LTMLE fitting elapsed (parallel): ",
+        format(round(difftime(t_end, t_start, units = "auto"), 2)))
+
+future::plan(future::sequential)
+
+ltmle_fits <- split(flat_fits, work_grid$regime_label)[names(regimes)]
 
 # ltmle_fits[[label]] is now a list of m single-regime fits (one per
 # imputation). summary(fit, estimator = "tmle")$treatment exposes the
@@ -654,4 +694,12 @@ comparison |>
   labs(x = "Mean MCS score (95% CI)", y = NULL) +
   facet_wrap(~method, ncol = 1) +
   theme(panel.grid.minor = element_blank())
+
+# Idiomatic order — filename first, plot second:
+ggsave(
+  filename = here::here("figs", "results_comparison.png"),
+  plot     = results_comparison,
+  width = 6, height = 8, dpi = 300
+)
+
 ```
