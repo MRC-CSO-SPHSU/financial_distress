@@ -431,7 +431,7 @@ flat_fits <- furrr::future_map2(
   .options  = furrr::furrr_options(
     seed     = seed_random,
     packages = c("ltmle", "SuperLearner",
-                 "ranger", "glmnet", "gam", "arm")
+                 "ranger", "gam", "arm")
   ),
   .progress = TRUE
 )
