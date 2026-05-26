@@ -13,7 +13,7 @@ Data comes from the UK Household Longitudinal Study (UKHLS), also known as Under
 
 ```{r setup}
 #| output: false
-here::i_am("code/02_simple_model.qmd")
+here::i_am("report/02_simple_model.qmd")
 
 pacman::p_load(gfoRmula,
                gFormulaMI,
