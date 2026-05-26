@@ -19,5 +19,11 @@ legacy/
 CLAUDE.md
 .claude
 
-# Reports
+# Reports — ignore rendered outputs but track .qmds 
 report/*
+!report/*.qmd
+
+# targets pipeline
+_targets/
+*.crew_log
+crew-*.log
