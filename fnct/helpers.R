@@ -8,6 +8,8 @@
 # LAST UPDATE: 11 May 2026
 #######################################################################################################
 
+# @pending: add mice native predictor matrix function to custom predictor matrix to improve counterfactual imputation pipeline.
+
 make_wide <- function(df, id_col, time_col, base_cols, outcome, ..., static = FALSE, waves = NULL) {
   
   require(rlang)
