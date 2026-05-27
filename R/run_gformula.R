@@ -25,6 +25,15 @@ run_gformula <- function(wide_mids, wide_data_mi, M = 50) {
   predictor_matrix[, "sf12mcs_dv_2"] <- 0
   predictor_matrix["sf12mcs_dv_1", "sf12mcs_dv_0"] <- 1
   predictor_matrix["sf12mcs_dv_2", "sf12mcs_dv_1"] <- 1
+
+  ## sf_12mcs_dv_t predicts econ_dist_bin_t+1
+  predictor_matrix["econ_dist_bin_1", "sf12mcs_dv_0"] <- 1
+  predictor_matrix["econ_dist_bin_2", "sf12mcs_dv_1"] <- 1
+
+  ## sf_12mcs_dv_t predicts pcs_lagged_t+1
+  predictor_matrix["pcs_lagged_1", "sf12mcs_dv_0"] <- 1
+  predictor_matrix["pcs_lagged_2", "sf12mcs_dv_1"] <- 1
+
   predictor_matrix["regime", ] <- 1
   predictor_matrix["regime", "regime"] <- 0
 
