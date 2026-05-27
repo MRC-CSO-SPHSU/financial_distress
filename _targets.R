@@ -13,11 +13,8 @@ pacman::p_load(targets,
                crew,
                crew.cluster)
 
-# Detect SLURM at runtime: `sbatch` on PATH means we're on a submission host
-# (login node or compute node), so dispatch via crew.cluster. Otherwise fall
-# back to a local crew controller so the same _targets.R works on a laptop
-# (with parallel branching across cores) without trying to talk to a scheduler
-# that isn't there.
+# Detect SLURM at runtime: `sbatch` on PATH. If detected, dispatch via crew.cluster. Otherwise fall
+# back to a local crew controller. This allows the same code to run both locally and on the cluster.
 on_slurm <- nzchar(Sys.which("sbatch"))
 
 controller_obj <- if (on_slurm) {
@@ -163,6 +160,6 @@ list(
   tar_target(iptw_results,    extract_iptw(iptw_fit, wide_mids, wide_data)),
 
   # Final comparison + report
-  tar_target(comparison,      assemble_comparison(ltmle_results, mi_results, iptw_results)) #,
-  #tar_quarto(report,          "report/05_imputation.qmd")
+  tar_target(comparison,      assemble_comparison(mi_results, iptw_results)),
+  tar_quarto(report,          "report/05_imputation.qmd")
 )
