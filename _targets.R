@@ -32,20 +32,22 @@ tar_option_set(
     name                           = "fd_slurm",
     workers                        = 20,
     seconds_idle                   = 300,
-    script_lines                   = c(
-      "module purge",
-      "module load apps/miniforge",
-      'source "$(conda info --base)/etc/profile.d/conda.sh"',
-      "conda activate quarto",
-      "export OMP_NUM_THREADS=1",
-      "export OPENBLAS_NUM_THREADS=1",
-      "export MKL_NUM_THREADS=1",
-      "export RANGER_NUM_THREADS=1"
-    ),
-    slurm_cpus_per_task            = 2,
-    slurm_memory_gigabytes_per_cpu = 6,
-    slurm_time_minutes             = 60,
-    slurm_partition                = NULL  # set if your cluster requires one
+    options_cluster.               = crew_options_slurm(
+      script_lines = c(
+        "module purge",
+        "module load apps/miniforge",
+        'source "$(conda info --base)/etc/profile.d/conda.sh"',
+        "conda activate quarto",
+        "export OMP_NUM_THREADS=1",
+        "export OPENBLAS_NUM_THREADS=1",
+        "export MKL_NUM_THREADS=1",
+        "export RANGER_NUM_THREADS=1"
+      ),
+      slurm_cpus_per_task            = 2,
+      slurm_memory_gigabytes_per_cpu = 6,
+      slurm_time_minutes             = 60,
+      slurm_partition                = NULL  # set if your cluster requires one
+    )
   )
 )
 
@@ -75,19 +77,22 @@ regimes <- list(
 
 Qform <- c(
     pcs_lagged_0 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base",
-    pcs_lagged_1 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base + econ_dist_bin_0 + pcs_lagged_0",
+    pcs_lagged_1 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base + econ_dist_bin_0 + pcs_lagged_0 + sf12mcs_dv_0",
     pcs_lagged_2 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base +
                                econ_dist_bin_0 + pcs_lagged_0 + pcs_lagged_1 +
-                               econ_dist_bin_1",
+                               econ_dist_bin_1 + sf12mcs_dv_1 + sf12mcs_dv_0",
     sf12mcs_dv_0 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_0 + econ_dist_bin_0",
-    sf12mcs_dv_1 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_0 + econ_dist_bin_0 + pcs_lagged_1 + econ_dist_bin_1 + sf12mcs_dv_0",
-    sf12mcs_dv_2 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_0 + econ_dist_bin_0 + pcs_lagged_1 + econ_dist_bin_1 + pcs_lagged_2 + econ_dist_bin_2 + sf12mcs_dv_0 + sf12mcs_dv_1"
+    sf12mcs_dv_1 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_0 + 
+                               econ_dist_bin_0 + pcs_lagged_1 + econ_dist_bin_1 + sf12mcs_dv_0",
+    sf12mcs_dv_2 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base + 
+                               pcs_lagged_0 + econ_dist_bin_0 + pcs_lagged_1 + econ_dist_bin_1 + 
+                               pcs_lagged_2 + econ_dist_bin_2 + sf12mcs_dv_0 + sf12mcs_dv_1"
 )
 
 gform <- c(
     econ_dist_bin_0 = "econ_dist_bin_0 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_0",
-    econ_dist_bin_1 = "econ_dist_bin_1 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_1 + econ_dist_bin_0",
-    econ_dist_bin_2 = "econ_dist_bin_2 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_2 + econ_dist_bin_0 + econ_dist_bin_1"
+    econ_dist_bin_1 = "econ_dist_bin_1 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_1 + econ_dist_bin_0 + sf12mcs_dv_0",
+    econ_dist_bin_2 = "econ_dist_bin_2 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_2 + econ_dist_bin_0 + econ_dist_bin_1 + sf12mcs_dv_1 + sf12mcs_dv_0"
 )
 
 # (regime × imputation) grid for dynamic branching of the LTMLE step.
