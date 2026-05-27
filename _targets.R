@@ -5,43 +5,45 @@
 # Statistical code (formulas, regimes, SL library, Rubin pooling) is preserved
 # verbatim — extracted from the original chunks into R/ functions.
 #
-# Local: `tar_make()` runs the DAG in-process.
-# Cluster: same call dispatches LTMLE branches as SLURM jobs via crew.cluster.
+# Parallel backend: future + future.batchtools. The controller process running
+# tar_make_future() submits each worker target as its own SLURM job via the
+# slurm.tmpl template; locally it falls back to background R processes via
+# future.callr. (Branch `main` uses crew.cluster instead; see exp/future
+# commit history for the migration rationale.)
 
 pacman::p_load(targets,
                tarchetypes,
-               crew,
-               crew.cluster)
+               future,
+               future.batchtools,
+               future.callr)
 
-# Detect SLURM at runtime: `sbatch` on PATH. If detected, dispatch via crew.cluster. Otherwise fall
-# back to a local crew controller. This allows the same code to run both locally and on the cluster.
-on_slurm <- nzchar(Sys.which("sbatch"))
+# Detect SLURM at runtime: require both a SLURM job context AND a working
+# sbatch on PATH. The conjunction prevents the local fallback from triggering
+# on login nodes that happen to have sbatch but no SLURM_JOB_ID.
+on_slurm <- nzchar(Sys.getenv("SLURM_JOB_ID")) && nzchar(Sys.which("sbatch"))
 
-controller_obj <- if (on_slurm) {
-  crew_controller_slurm(
-    name                           = "fd_slurm",
-    workers                        = 4,
-    seconds_idle                   = 300,
-    options_cluster                = crew_options_slurm(
-      script_lines = c(
-        "module purge",
-        "module load apps/miniforge",
-        'source "$(conda info --base)/etc/profile.d/conda.sh"',
-        "conda activate quarto",
-        "export OMP_NUM_THREADS=1",
-        "export OPENBLAS_NUM_THREADS=1",
-        "export MKL_NUM_THREADS=1",
-        "export RANGER_NUM_THREADS=1"
-      ),
-      cpus_per_task            = 2,
-      memory_gigabytes_per_cpu = 6,
-      time_minutes             = 30,
-      partition                = NULL  # set if your cluster requires one
+if (on_slurm) {
+  future::plan(
+    future.batchtools::batchtools_slurm,
+    template  = "slurm.tmpl",
+    resources = list(
+      ncpus    = 2,
+      memory   = 6 * 1024,   # MB per CPU  (≈ 12 GB per worker)
+      walltime = 30 * 60,    # seconds     (= 30 min wall)
+      account  = "none"
     )
   )
 } else {
-  crew::crew_controller_local(name = "fd_local", workers = 4)
+  future::plan(future.callr::callr, workers = 4)
 }
+
+message("=== TARGETS FUTURE PLAN ===")
+message("hostname:        ", Sys.info()[["nodename"]])
+message("SLURM_JOB_ID:    '", Sys.getenv("SLURM_JOB_ID"), "'")
+message("Sys.which sbatch: '", Sys.which("sbatch"), "'")
+message("on_slurm:        ", on_slurm)
+message("plan:            ", paste(class(future::plan()), collapse = "/"))
+message("===========================")
 
 # ---- Packages attached to every target's evaluation environment ------------
 tar_option_set(
@@ -54,8 +56,7 @@ tar_option_set(
     "quarto"
   ),
   format = "rds",
-  seed   = 20260522,
-  controller = controller_obj
+  seed   = 20260522
 )
 
 # ---- Source extracted functions (R/) and project helpers (fnct/) -----------
