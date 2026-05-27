@@ -161,5 +161,5 @@ list(
 
   # Final comparison + report
   tar_target(comparison,      assemble_comparison(mi_results, iptw_results)),
-  tar_quarto(report,          "report/05_imputation.qmd")
+  tar_quarto(report,          "05_imputation.qmd")
 )
