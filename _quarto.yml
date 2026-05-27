@@ -1,5 +1,5 @@
-project: 
-  output-dir: report
+project:
+  output-dir: report/html
 
 toc: true
 number-sections: true
