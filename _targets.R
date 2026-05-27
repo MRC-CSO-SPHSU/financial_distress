@@ -32,7 +32,7 @@ tar_option_set(
     name                           = "fd_slurm",
     workers                        = 20,
     seconds_idle                   = 300,
-    options_cluster.               = crew_options_slurm(
+    options_cluster                = crew_options_slurm(
       script_lines = c(
         "module purge",
         "module load apps/miniforge",
@@ -43,10 +43,10 @@ tar_option_set(
         "export MKL_NUM_THREADS=1",
         "export RANGER_NUM_THREADS=1"
       ),
-      slurm_cpus_per_task            = 2,
-      slurm_memory_gigabytes_per_cpu = 6,
-      slurm_time_minutes             = 60,
-      slurm_partition                = NULL  # set if your cluster requires one
+      cpus_per_task            = 2,
+      memory_gigabytes_per_cpu = 6,
+      time_minutes             = 60,
+      partition                = NULL  # set if your cluster requires one
     )
   )
 )
