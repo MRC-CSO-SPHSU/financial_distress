@@ -20,7 +20,7 @@ on_slurm <- nzchar(Sys.which("sbatch"))
 controller_obj <- if (on_slurm) {
   crew_controller_slurm(
     name                           = "fd_slurm",
-    workers                        = 20,
+    workers                        = 4,
     seconds_idle                   = 300,
     options_cluster                = crew_options_slurm(
       script_lines = c(
