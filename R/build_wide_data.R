@@ -19,8 +19,8 @@ build_wide_data <- function(pop_data) {
   wide_data <- final_data |>
     mutate(econ_dist_bin = as.factor(econ_dist_bin)) |>
     make_wide(
-      pidp,
-      t0,
+      id_col = pidp,
+      time_col = t0,
       base_cols = c(sex_dv_base,
                     hiqual_dv_base,
                     race_base),
