@@ -10,7 +10,8 @@
 
 pacman::p_load(targets,
                tarchetypes,
-               crew.cluster)
+               crew.cluster,
+               quarto)
 
 # ---- Packages attached to every target's evaluation environment ------------
 tar_option_set(
