@@ -47,12 +47,22 @@ message("--- waiting up to 180s for a worker to materialize ---")
 ok <- ctl$wait(seconds_timeout = 180)
 message("wait() returned: ", ok)
 
-message("--- worker SLURM jobs crew knows about ---")
-print(ctl$launcher$summary())
+message("--- controller summary (tasks pushed/popped, worker activity) ---")
+print(ctl$summary())
 
-message("--- task result ---")
+message("--- task result (one row tibble: name, command, result, error, ...) ---")
 res <- ctl$pop()
 print(res)
+
+if (!is.null(res) && !is.null(res$result) && length(res$result) >= 1L) {
+  message("--- result payload from worker ---")
+  print(res$result[[1]])
+}
+if (!is.null(res) && !is.null(res$error) && length(res$error) >= 1L &&
+    !is.na(res$error[[1]])) {
+  message("--- worker reported an error ---")
+  print(res$error[[1]])
+}
 
 message("--- shutting down ---")
 ctl$terminate()
