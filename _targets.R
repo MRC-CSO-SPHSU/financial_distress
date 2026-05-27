@@ -10,25 +10,18 @@
 
 pacman::p_load(targets,
                tarchetypes,
+               crew,
                crew.cluster)
 
-# ---- Packages attached to every target's evaluation environment ------------
-tar_option_set(
-  packages = c(
-    "data.table", "dplyr", "tidyr", "tibble", "purrr", "magrittr",
-    "rlang", "here",
-    "mice", "ltmle", "SuperLearner", "ranger", "gam", "arm",
-    "gFormulaMI",
-    "mori",
-    "quarto"
-  ),
-  format = "rds",
-  seed   = 20260522,
+# Detect SLURM at runtime: `sbatch` on PATH means we're on a submission host
+# (login node or compute node), so dispatch via crew.cluster. Otherwise fall
+# back to a local crew controller so the same _targets.R works on a laptop
+# (with parallel branching across cores) without trying to talk to a scheduler
+# that isn't there.
+on_slurm <- nzchar(Sys.which("sbatch"))
 
-  # crew.cluster SLURM controller. On a non-SLURM machine the controller is
-  # idle and targets are evaluated in-process, so the same _targets.R works
-  # locally and on the cluster.
-  controller = crew_controller_slurm(
+controller_obj <- if (on_slurm) {
+  crew_controller_slurm(
     name                           = "fd_slurm",
     workers                        = 20,
     seconds_idle                   = 300,
@@ -49,6 +42,23 @@ tar_option_set(
       partition                = NULL  # set if your cluster requires one
     )
   )
+} else {
+  crew::crew_controller_local(name = "fd_local", workers = 4)
+}
+
+# ---- Packages attached to every target's evaluation environment ------------
+tar_option_set(
+  packages = c(
+    "data.table", "dplyr", "tidyr", "tibble", "purrr", "magrittr",
+    "rlang", "here",
+    "mice", "ltmle", "SuperLearner", "ranger", "gam", "arm",
+    "gFormulaMI",
+    "mori",
+    "quarto"
+  ),
+  format = "rds",
+  seed   = 20260522,
+  controller = controller_obj
 )
 
 # ---- Source extracted functions (R/) and project helpers (fnct/) -----------
@@ -114,7 +124,7 @@ list(
                                        seed  = seed_random)),
 
   # LTMLE: prepare data, branch over (regime × imputation), pool
-  tar_target(ltmle_data_list, prepare_ltmle_data(wide_mids)),
+#  tar_target(ltmle_data_list, prepare_ltmle_data(wide_mids)),
 
   # Share imputed datasets through OS shared memory so workers co-located on
   # the same node attach via zero-copy ALTREP instead of holding independent
@@ -123,27 +133,27 @@ list(
   # `cue = "always"` because the shared segment lives only for the duration of
   # the current tar_make() — a stale .rds reference from a previous run would
   # point at a segment that no longer exists.
-  tar_target(
-    ltmle_data_list_shared,
-    mori::share(ltmle_data_list),
-    cue = tar_cue(mode = "always")
-  ),
-  tar_target(work_grid_t,     work_grid),
-  tar_target(
-    ltmle_one,
-    fit_ltmle_one(
-      regime_label    = work_grid_t$regime_label,
-      imp_idx         = work_grid_t$imp_idx,
-      ltmle_data_list = ltmle_data_list_shared,
-      regimes         = regimes,
-      Qform           = Qform,
-      gform           = gform,
-      sl_libs         = sl_libs
-    ),
-    pattern   = map(work_grid_t),
-    iteration = "list"
-  ),
-  tar_target(ltmle_results,   pool_ltmle(ltmle_one, work_grid_t$regime_label)),
+#  tar_target(
+#    ltmle_data_list_shared,
+#    mori::share(ltmle_data_list),
+#    cue = tar_cue(mode = "always")
+#  ),
+#  tar_target(work_grid_t,     work_grid),
+#  tar_target(
+#    ltmle_one,
+#    fit_ltmle_one(
+#      regime_label    = work_grid_t$regime_label,
+#      imp_idx         = work_grid_t$imp_idx,
+#      ltmle_data_list = ltmle_data_list_shared,
+#      regimes         = regimes,
+#      Qform           = Qform,
+#      gform           = gform,
+#      sl_libs         = sl_libs
+#    ),
+#    pattern   = map(work_grid_t),
+#    iteration = "list"
+#  ),
+#  tar_target(ltmle_results,   pool_ltmle(ltmle_one, work_grid_t$regime_label)),
 
   # Sensitivity analyses — both depend only on wide_mids, run in parallel
   tar_target(mi_results,      run_gformula(wide_mids,
@@ -153,6 +163,6 @@ list(
   tar_target(iptw_results,    extract_iptw(iptw_fit, wide_mids, wide_data)),
 
   # Final comparison + report
-  tar_target(comparison,      assemble_comparison(ltmle_results, mi_results, iptw_results)),
-  tar_quarto(report,          "report/05_imputation.qmd")
+  tar_target(comparison,      assemble_comparison(ltmle_results, mi_results, iptw_results)) #,
+  #tar_quarto(report,          "report/05_imputation.qmd")
 )
