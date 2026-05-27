@@ -10,8 +10,7 @@
 
 pacman::p_load(targets,
                tarchetypes,
-               crew.cluster,
-               quarto)
+               crew.cluster)
 
 # ---- Packages attached to every target's evaluation environment ------------
 tar_option_set(
@@ -20,7 +19,8 @@ tar_option_set(
     "rlang", "here",
     "mice", "ltmle", "SuperLearner", "ranger", "gam", "arm",
     "gFormulaMI",
-    "mori"
+    "mori",
+    "quarto"
   ),
   format = "rds",
   seed   = 20260522,
