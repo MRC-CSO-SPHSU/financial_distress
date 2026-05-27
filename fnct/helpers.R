@@ -20,20 +20,20 @@ make_wide <- function(df, id_col, time_col, base_cols, outcome, ..., static = FA
   
   t_conf <- enquos(...)
   
-  if (!is.null(waves)) {                                                                                                                                                                                                                                                                            
-    df <- df |> filter({{time_col}} %in% waves)                                                                                                                                                                                                                                                     
-  } 
+  if (!is.null(waves)) {
+    df <- df |> dplyr::filter({{time_col}} %in% waves)
+  }
 
-  t_max <- max(df |> pull({{time_col}}))
-  t_min <- min(df |> pull({{time_col}}))
-  
-  df_out <- df |> 
-    select({{id_col}}, {{time_col}}, {{base_cols}}, !!!t_conf, {{outcome}}) |> 
-    pivot_wider(
-      id_cols = c({{id_col}}, {{base_cols}}), 
-      names_from = {{time_col}}, 
-      values_from = -c({{id_col}}, {{time_col}}, {{base_cols}})) |> 
-    select(
+  t_max <- max(df |> dplyr::pull({{time_col}}))
+  t_min <- min(df |> dplyr::pull({{time_col}}))
+
+  df_out <- df |>
+    dplyr::select({{id_col}}, {{time_col}}, {{base_cols}}, !!!t_conf, {{outcome}}) |>
+    tidyr::pivot_wider(
+      id_cols = c({{id_col}}, {{base_cols}}),
+      names_from = {{time_col}},
+      values_from = -c({{id_col}}, {{time_col}}, {{base_cols}})) |>
+    dplyr::select(
       {{id_col}},
       {{base_cols}},
       ends_with("0"),
@@ -47,14 +47,14 @@ make_wide <- function(df, id_col, time_col, base_cols, outcome, ..., static = FA
       ends_with("8"),
       ends_with("9")
     )
-  
+
   if (static) {
       intermediate_cols <- paste0(outcome_name, "_", (t_min + 1):(t_max - 1))
-      df_out <- df_out |> select(-any_of(intermediate_cols))
+      df_out <- df_out |> dplyr::select(-any_of(intermediate_cols))
     }
 
   attr(df_out, "n_tvars") <- length(t_conf)
-  attr(df_out, "n_base") <- length(df[1,] |> select({{base_cols}}))
+  attr(df_out, "n_base") <- length(df[1,] |> dplyr::select({{base_cols}}))
   
   df_out
 }
