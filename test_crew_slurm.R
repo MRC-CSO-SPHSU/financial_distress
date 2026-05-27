@@ -1,7 +1,10 @@
-## Minimal reproducer: can crew.cluster launch ONE worker on this cluster?
+## Minimal reproducer: can crew.cluster launch ONE worker and return ONE result?
 ## Run from inside an srun shell on a compute node, after `conda activate quarto`.
 ##   Rscript test_crew_slurm.R
-## All diagnostic output goes to stderr so you see it as the script runs.
+##
+## This version is explicit at every step (manual launch, mode="one" wait,
+## explicit collect, inline sacct probes) so failures surface where they happen
+## instead of being hidden by autoscale / wait-on-empty-queue surprises.
 
 suppressPackageStartupMessages(library(crew.cluster))
 
@@ -9,7 +12,6 @@ message("=== ENVIRONMENT CHECK ===")
 message("hostname:        ", Sys.info()[["nodename"]])
 message("SLURM_JOB_ID:    '", Sys.getenv("SLURM_JOB_ID"), "'")
 message("Sys.which sbatch: '", Sys.which("sbatch"), "'")
-message("R version:       ", R.version.string)
 message("crew.cluster ver: ", as.character(packageVersion("crew.cluster")))
 message("crew ver:        ", as.character(packageVersion("crew")))
 message("mirai ver:       ", as.character(packageVersion("mirai")))
@@ -18,7 +20,7 @@ message("==========================")
 ctl <- crew_controller_slurm(
   name            = "probe",
   workers         = 1,
-  seconds_idle    = 30,
+  seconds_idle    = 60,
   options_cluster = crew_options_slurm(
     script_lines = c(
       "module purge",
@@ -36,33 +38,53 @@ ctl <- crew_controller_slurm(
 message("--- starting controller ---")
 ctl$start()
 
-message("--- pushing trivial task ---")
-ctl$push(command = list(
-  worker_host = Sys.info()[["nodename"]],
-  worker_pid  = Sys.getpid(),
-  worker_time = format(Sys.time())
-))
+message("--- explicit launch of 1 worker (bypassing autoscale) ---")
+ctl$launch(n = 1L)
+Sys.sleep(2)
+message("immediately after launch, sacct shows:")
+system("sacct -u $USER --starttime now-2min --format=JobID%15,JobName%15,State,Submit -n | tail -10")
 
-message("--- waiting up to 180s for a worker to materialize ---")
-ok <- ctl$wait(seconds_timeout = 180)
-message("wait() returned: ", ok)
+message("--- pushing simple string task ---")
+ctl$push(
+  name    = "probe_task",
+  command = paste0("worker on ", Sys.info()[["nodename"]],
+                   " pid=", Sys.getpid(),
+                   " time=", format(Sys.time()))
+)
 
-message("--- controller summary (tasks pushed/popped, worker activity) ---")
+message("--- summary immediately after push (should show 1 pending task) ---")
 print(ctl$summary())
 
-message("--- task result (one row tibble: name, command, result, error, ...) ---")
+message("--- waiting up to 240s for ONE task to complete ---")
+t0 <- Sys.time()
+ok <- ctl$wait(mode = "one", seconds_timeout = 240)
+elapsed <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1)
+message("wait() returned: ", ok, "  (elapsed: ", elapsed, "s)")
+
+message("--- explicit collect() to pull mirai results into the schedule ---")
+ctl$collect()
+
+message("--- summary after collect ---")
+print(ctl$summary())
+
+message("--- popping the completed task ---")
 res <- ctl$pop()
 print(res)
 
-if (!is.null(res) && !is.null(res$result) && length(res$result) >= 1L) {
-  message("--- result payload from worker ---")
-  print(res$result[[1]])
+if (!is.null(res)) {
+  if (length(res$result) >= 1L && !is.null(res$result[[1]])) {
+    message("PAYLOAD: ", res$result[[1]])
+  }
+  if (length(res$error) >= 1L && !is.na(res$error[[1]])) {
+    message("WORKER ERROR: ", res$error[[1]])
+  }
 }
-if (!is.null(res) && !is.null(res$error) && length(res$error) >= 1L &&
-    !is.na(res$error[[1]])) {
-  message("--- worker reported an error ---")
-  print(res$error[[1]])
-}
+
+message("--- final SLURM state for any probe worker jobs ---")
+system("sacct -u $USER --starttime now-10min --format=JobID%15,JobName%15,State,ExitCode,Elapsed,Reason%30 -n")
+
+message("--- worker log files crew created ---")
+system("ls -la probe-*.out probe-*.err 2>/dev/null")
 
 message("--- shutting down ---")
 ctl$terminate()
