@@ -103,6 +103,9 @@ DiagrammeR::grViz("
                   Y1 -> C2
                   Y2 -> C3
 
+                  Y1 -> E2
+                  Y2 -> E3
+
                   {rank=min; TI}
                   {rank=same; C1, C2, C3}
                   {rank=same; E1, E2, E3}
