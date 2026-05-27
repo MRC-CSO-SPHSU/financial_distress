@@ -2,7 +2,7 @@
 title: "New pipelines: multiple imputation"
 author: "Darwin Del Castillo"
 format: 
-  docx:
+  html:
     number-sections: true
     
 editor: source
@@ -13,7 +13,7 @@ Data comes from the UK Household Longitudinal Study (UKHLS), also known as Under
 
 ```{r setup}
 #| output: false
-here::i_am("report/05_imputation.qmd")
+here::i_am("05_imputation.qmd")
 
 pacman::p_load(gfoRmula,
                gFormulaMI,

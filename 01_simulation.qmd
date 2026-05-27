@@ -16,7 +16,7 @@ estimation in complex settings with dynamic interventions](doi.org/10.1002/sim.8
 
 ```{r simulate}
 #| output: false
-here::i_am("report/01_simulation.qmd")
+here::i_am("01_simulation.qmd")
 
 if (!requireNamespace("RStata", quietly = TRUE)) {
   message("RStata not installed, installing RStata package...")
