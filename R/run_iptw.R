@@ -6,9 +6,9 @@ run_iptw <- function(wide_mids) {
     # Denominators: P(A_t | baseline, time-varying confounder, prior treatment)
     d0 <- glm(econ_dist_bin_0 ~ sex_dv_base + hiqual_dv_base + race_base + pcs_lagged_0,
               family = binomial())
-    d1 <- glm(econ_dist_bin_1 ~ sex_dv_base + hiqual_dv_base + race_base + pcs_lagged_1 * econ_dist_bin_0,
+    d1 <- glm(econ_dist_bin_1 ~ sex_dv_base + hiqual_dv_base + race_base + pcs_lagged_1 * econ_dist_bin_0 + sf12mcs_dv_0,
               family = binomial())
-    d2 <- glm(econ_dist_bin_2 ~ sex_dv_base + hiqual_dv_base + race_base + pcs_lagged_2 * econ_dist_bin_1,
+    d2 <- glm(econ_dist_bin_2 ~ sex_dv_base + hiqual_dv_base + race_base + pcs_lagged_2 * econ_dist_bin_1 + sf12mcs_dv_1 + sf12mcs_dv_0,
               family = binomial())
 
     # Numerators: P(A_t | prior treatment) — stabilising marginals
