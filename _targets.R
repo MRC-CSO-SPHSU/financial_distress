@@ -13,11 +13,24 @@ pacman::p_load(targets,
                crew,
                crew.cluster)
 
-# Detect SLURM at runtime: `sbatch` on PATH. If detected, dispatch via crew.cluster. Otherwise fall
-# back to a local crew controller. This allows the same code to run both locally and on the cluster.
-on_slurm <- nzchar(Sys.which("sbatch"))
+# Detect SLURM at runtime: require BOTH a SLURM job context AND a working sbatch on PATH. This
+# avoids the silent fallback to crew_controller_local on clusters where compute nodes lack sbatch
+# (or where nested submission is forbidden by policy).
+in_slurm_job <- nzchar(Sys.getenv("SLURM_JOB_ID"))
+sbatch_path  <- Sys.which("sbatch")
+on_slurm     <- in_slurm_job && nzchar(sbatch_path)
+
+message("=== CREW CONTROLLER SELECTION ===")
+message("hostname:        ", Sys.info()[["nodename"]])
+message("SLURM_JOB_ID:    '", Sys.getenv("SLURM_JOB_ID"), "'")
+message("Sys.which sbatch: '", sbatch_path, "'")
+message("in_slurm_job:    ", in_slurm_job)
+message("on_slurm:        ", on_slurm)
+message("controller type: ", if (on_slurm) "crew_controller_slurm" else "crew_controller_local")
+message("=================================")
 
 controller_obj <- if (on_slurm) {
+  dir.create("crew_logs", showWarnings = FALSE)
   crew_controller_slurm(
     name                           = "fd_slurm",
     workers                        = 20,
@@ -36,7 +49,9 @@ controller_obj <- if (on_slurm) {
       cpus_per_task            = 2,
       memory_gigabytes_per_cpu = 6,
       time_minutes             = 60,
-      partition                = NULL  # set if your cluster requires one
+      partition                = NULL,            # set if your cluster requires one
+      log_output               = "crew_logs/crew-%A.out",
+      log_error                = "crew_logs/crew-%A.err"
     )
   )
 } else {
