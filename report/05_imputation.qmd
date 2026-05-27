@@ -29,6 +29,11 @@ pacman::p_load(gfoRmula,
                targets,
                knitr)
 
+# Quarto renders from report/, but the targets store lives at the project
+# root. Pass this absolute path to every tar_read() below so resolution
+# doesn't depend on the working directory.
+tar_store <- here::here("_targets")
+
 source(here::here("fnct", "import_cleaning.R"))
 source(here::here("fnct", "helpers.R"))
 ```
@@ -42,7 +47,6 @@ In this model, we include 3 waves of data (waves 3 to 5) and adjust for time-inv
     - Highest educational qualification \
 
 ```{r model1}
-#| label: model1
 #| echo: false
 #| include: true
 #| fig-cap: "Estimated mean MCS scores at wave 5, adjusting for time-invariant covariates and PCS score. Nodes are summarised by time point to avoid clutter."
@@ -120,14 +124,14 @@ The data is prepared by creating a long format dataset with one row per individu
 
 ```{r data_prep}
 #| output: false
-wide_data <- tar_read(wide_data)
+wide_data <- tar_read(wide_data, store = tar_store)
 seed_random <- 20260522
 ```
 
 # Multiple imputation (wide format)
 ```{r mice-gformula}
 #| output: false
-wide_mids <- tar_read(wide_mids)
+wide_mids <- tar_read(wide_mids, store = tar_store)
 ```
 
 ## Additional: mice diagnostics
@@ -273,7 +277,8 @@ The LTMLE sweep over the 8 regime × imputation pairs is computed by the targets
 ```{r ltmle-mi}
 #| output: false
 #| include: true
-ltmle_results <- tar_read(ltmle_results)
+#| eval: false
+ltmle_results <- tar_read(ltmle_results, store = tar_store)
 ```
 
 
@@ -285,7 +290,7 @@ ltmle_results <- tar_read(ltmle_results)
 ```{r gformula-mi}
 #| include: false
 #| output: false
-mi_results <- tar_read(mi_results)
+mi_results <- tar_read(mi_results, store = tar_store)
 ```
 
 ## IPTW with multiple imputation
@@ -293,7 +298,7 @@ mi_results <- tar_read(mi_results)
 ```{r iptw-mi}
 #| output: false
 #| include: false
-iptw_fit  <- tar_read(iptw_fit)
+iptw_fit  <- tar_read(iptw_fit, store = tar_store)
 iptw_pool <- mice::pool(iptw_fit)
 summary(iptw_pool)
 ```
@@ -302,8 +307,8 @@ summary(iptw_pool)
 ```{r table-results}
 #| output: true
 #| include: true
-iptw_results <- tar_read(iptw_results)
-comparison   <- tar_read(comparison)
+iptw_results <- tar_read(iptw_results, store = tar_store)
+comparison   <- tar_read(comparison, store = tar_store)
 
 comparison |> knitr::kable(digits = 3)
 ```
@@ -313,7 +318,7 @@ comparison |> knitr::kable(digits = 3)
 #| include: true
 
 # Combine results into a single data frame for plotting
-comparison |>
+results_comparison <- comparison |>
   pivot_longer(
     -intervention,
     names_to = c("method", ".value"),
