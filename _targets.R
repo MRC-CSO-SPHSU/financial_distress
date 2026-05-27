@@ -35,7 +35,7 @@ controller_obj <- if (on_slurm) {
       ),
       cpus_per_task            = 2,
       memory_gigabytes_per_cpu = 6,
-      time_minutes             = 60,
+      time_minutes             = 30,
       partition                = NULL  # set if your cluster requires one
     )
   )
