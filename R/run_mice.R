@@ -12,8 +12,8 @@ run_mice <- function(wide_data, m = 5, maxit = 10, seed = 20260522) {
                     "pmm", "logreg", "pmm")
 
   pred_mat <- mice::make.predictorMatrix(wide_data)
-  pred_mat[, "pidp"] <- 0
-  pred_mat["pidp", ] <- 0
+#  pred_mat[, "pidp"] <- 0
+#  pred_mat["pidp", ] <- 0 # not needed anymore
 
   mice::mice(
     data            = wide_data,
