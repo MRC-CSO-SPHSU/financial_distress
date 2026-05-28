@@ -2,7 +2,7 @@
 #SBATCH --job-name=fd_targets
 #SBATCH --time=24:00:00            # controller blocks while batchtools worker jobs run
 #SBATCH --cpus-per-task=2          # orchestration only; worker targets go to child SLURM jobs
-#SBATCH --mem=64G                  # MICE mids + gFormulaMI + IPTW held in controller memory
+#SBATCH --mem=96G                  # MICE mids + gFormulaMI + IPTW held in controller memory
 #SBATCH --output=targets_%j.out
 #SBATCH --error=targets_%j.err
 #SBATCH --account=none

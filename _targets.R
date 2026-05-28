@@ -28,7 +28,9 @@ if (on_slurm) {
     template  = "slurm.tmpl",
     resources = list(
       ncpus    = 2,
-      memory   = 12 * 1024,  # MB per CPU  (= 24 GB per worker; headroom for LTMLE + SuperLearner)
+      memory   = 24 * 1024,  # MB per CPU  (= 48 GB per worker). One LTMLE branch peaked
+                             # >24 GB (OOM at the old ceiling); SuperLearner accumulates
+                             # fitted objects across 9 Q/g nodes. Re-check seff and trim.
       walltime = 60 * 60,    # seconds     (= 60 min wall; LTMLE branches can run long)
       account  = "none"
     )
