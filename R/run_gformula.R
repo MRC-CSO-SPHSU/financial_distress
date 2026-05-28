@@ -33,10 +33,6 @@ run_gformula <- function(wide_mids, wide_data_mi, M = 50) {
   ## sf_12mcs_dv_t predicts pcs_lagged_t+1
   predictor_matrix["pcs_lagged_1", "sf12mcs_dv_0"] <- 1
   predictor_matrix["pcs_lagged_2", "sf12mcs_dv_1"] <- 1
-
-  ## pipd does not predict or is predicted
-  predictor_matrix["pipd", ] <- 0
-  predictor_matrix[, "pipd"] <- 0
   
   predictor_matrix["regime", ] <- 1
   predictor_matrix["regime", "regime"] <- 0
