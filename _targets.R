@@ -28,9 +28,7 @@ if (on_slurm) {
     template  = "slurm.tmpl",
     resources = list(
       ncpus    = 2,
-      memory   = 24 * 1024,  # MB per CPU  (= 48 GB per worker). One LTMLE branch peaked
-                             # >24 GB (OOM at the old ceiling); SuperLearner accumulates
-                             # fitted objects across 9 Q/g nodes. Re-check seff and trim.
+      memory   = 24 * 1024,  # MB per CPU  (= 48 GB per worker).
       walltime = 60 * 60,    # seconds     (= 60 min wall; LTMLE branches can run long)
       account  = "none"
     )
@@ -52,7 +50,7 @@ tar_option_set(
   packages = c(
     "data.table", "dplyr", "tidyr", "tibble", "purrr", "magrittr",
     "rlang", "here",
-    "mice", "ltmle", "SuperLearner", "ranger", "gam", "arm",
+    "mice", "ltmle", "SuperLearner", "xgboost", "gam", "arm",
     "gFormulaMI",
     "quarto"
   ),
@@ -71,7 +69,7 @@ mice_maxit  <- 10   # final: 15
 gformula_M  <- 20   # final: 50
 seed_random <- 20260522
 
-sl_libs <- c("SL.mean", "SL.glm", "SL.bayesglm", "SL.gam", "SL.ranger")
+sl_libs <- c("SL.mean", "SL.glm", "SL.bayesglm", "SL.gam", "SL.xgboost.ltmle")
 
 regimes <- list(
   "0-0-0" = c(0, 0, 0),
