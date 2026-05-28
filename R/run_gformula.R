@@ -68,9 +68,12 @@ run_gformula <- function(wide_mids, wide_data_mi, M = 50) {
     ) |>
     dplyr::bind_cols(regimes_3)
 
-  # mice's loggedEvents (constant/collinear predictors dropped during the
-  # counterfactual imputation) is discarded with `imps` otherwise; keep it on
-  # the result so `attr(tar_read(mi_results), "loggedEvents")` can inspect it.
-  attr(out, "loggedEvents") <- imps$loggedEvents
+  # mice records dropped constant/collinear predictors in a mids object's
+  # $loggedEvents. Attach both available sources so they survive on the result:
+  # `imps` is gFormulaImpute's output (rebuilt via mice::as.mids with maxit=0,
+  # so this is usually empty), and `wide_mids` carries the original imputation's
+  # events. Inspect with attr(tar_read(mi_results), "loggedEvents") etc.
+  attr(out, "loggedEvents")      <- imps$loggedEvents
+  attr(out, "inputLoggedEvents") <- wide_mids$loggedEvents
   out
 }
