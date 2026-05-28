@@ -36,7 +36,7 @@ cd "${SLURM_SUBMIT_DIR}"
 # tar_make_future() dispatches each worker target as its own SLURM job via
 # future.batchtools (template: slurm.tmpl). `workers = 4` caps concurrent
 # child jobs. The final tar_quarto(report) target renders 05_imputation.qmd.
-Rscript -e 'targets::tar_make_future(workers = 4L)' 2>&1 | tee "targets_make_${SLURM_JOB_ID}.log"
+Rscript -e 'targets::tar_make_future(workers = 8L)' 2>&1 | tee "targets_make_${SLURM_JOB_ID}.log"
 status=${PIPESTATUS[0]}
 echo "tar_make_future exit status: $status"
 
