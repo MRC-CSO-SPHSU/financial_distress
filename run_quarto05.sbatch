@@ -39,4 +39,33 @@ cd "${SLURM_SUBMIT_DIR}"
 Rscript -e 'targets::tar_make_future(workers = 4L)' 2>&1 | tee "targets_make_${SLURM_JOB_ID}.log"
 status=${PIPESTATUS[0]}
 echo "tar_make_future exit status: $status"
+
+# ---- Email artifacts as attachments --------------------------------------
+# SLURM --mail-type sends status-only notifications; this adds the actual
+# files. RHEL mailx (Heirloom/s-nail) uses -a to attach; repeat -a per file.
+# Runs on both success and failure so the log always reaches the inbox (unless
+# the controller itself is killed before this line — --mail-type=FAIL covers that).
+MAILTO="darwin.delcastillofernandez@glasgow.ac.uk"
+LOG="targets_make_${SLURM_JOB_ID}.log"
+REPORT="report/html/05_imputation.html"
+SUBJECT="fd_targets ${SLURM_JOB_ID} finished (status ${status})"
+
+mail_args=(-s "$SUBJECT")
+[ -f "$LOG" ] && mail_args+=(-a "$LOG")
+if [ -f "$REPORT" ]; then
+  report_mb=$(( $(stat -c%s "$REPORT") / 1024 / 1024 ))
+  if [ "$report_mb" -le 20 ]; then
+    mail_args+=(-a "$REPORT")
+    report_note="Report attached (${report_mb} MB)."
+  else
+    report_note="Report too large to attach (${report_mb} MB); see ${SLURM_SUBMIT_DIR}/${REPORT}"
+  fi
+else
+  report_note="Report not produced (pipeline may have failed before the report target)."
+fi
+
+printf 'fd_targets job %s on %s\ntar_make_future exit status: %s\n%s\n' \
+  "$SLURM_JOB_ID" "$(hostname)" "$status" "$report_note" \
+  | mailx "${mail_args[@]}" "$MAILTO" || echo "WARNING: mailx send failed"
+
 exit $status
