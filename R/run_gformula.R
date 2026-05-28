@@ -68,12 +68,15 @@ run_gformula <- function(wide_mids, wide_data_mi, M = 50) {
     ) |>
     dplyr::bind_cols(regimes_3)
 
-  # mice records dropped constant/collinear predictors in a mids object's
-  # $loggedEvents. Attach both available sources so they survive on the result:
-  # `imps` is gFormulaImpute's output (rebuilt via mice::as.mids with maxit=0,
-  # so this is usually empty), and `wide_mids` carries the original imputation's
-  # events. Inspect with attr(tar_read(mi_results), "loggedEvents") etc.
-  attr(out, "loggedEvents")      <- imps$loggedEvents
-  attr(out, "inputLoggedEvents") <- wide_mids$loggedEvents
+  # Surface the g-formula imputation's loggedEvents in the target's build log
+  # (usually empty, since gFormulaImpute rebuilds its mids via mice::as.mids).
+  le <- imps$loggedEvents
+  if (is.null(le) || nrow(le) == 0) {
+    message("run_gformula: no logged events.")
+  } else {
+    message("run_gformula: ", nrow(le), " logged event(s) during imputation:")
+    message(paste(utils::capture.output(print(le)), collapse = "\n"))
+  }
+
   out
 }
