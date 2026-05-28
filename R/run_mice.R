@@ -1,5 +1,5 @@
 run_mice <- function(wide_data, m = 5, maxit = 10, seed = 20260522) {
-  wide_data$pidp <- as.numeric(wide_data$pidp)
+  # wide_data$pidp <- as.numeric(wide_data$pidp) # not needed anymore
 
   method_list <- mice::make.method(wide_data)
   method_list[c("pidp", "sex_dv_base", "hiqual_dv_base", "race_base",
