@@ -28,8 +28,8 @@ if (on_slurm) {
     template  = "slurm.tmpl",
     resources = list(
       ncpus    = 2,
-      memory   = 6 * 1024,   # MB per CPU  (≈ 12 GB per worker)
-      walltime = 30 * 60,    # seconds     (= 30 min wall)
+      memory   = 12 * 1024,  # MB per CPU  (= 24 GB per worker; headroom for LTMLE + SuperLearner)
+      walltime = 60 * 60,    # seconds     (= 60 min wall; LTMLE branches can run long)
       account  = "none"
     )
   )
@@ -52,7 +52,6 @@ tar_option_set(
     "rlang", "here",
     "mice", "ltmle", "SuperLearner", "ranger", "gam", "arm",
     "gFormulaMI",
-    "mori",
     "quarto"
   ),
   format = "rds",
@@ -121,37 +120,28 @@ list(
                                        maxit = mice_maxit,
                                        seed  = seed_random)),
 
-  # LTMLE: prepare data, branch over (regime × imputation), pool
-#  tar_target(ltmle_data_list, prepare_ltmle_data(wide_mids)),
-
-  # Share imputed datasets through OS shared memory so workers co-located on
-  # the same node attach via zero-copy ALTREP instead of holding independent
-  # copies. mori only shares within a machine, so the saving materialises only
-  # for workers SLURM packs onto the same node (or under crew_controller_local).
-  # `cue = "always"` because the shared segment lives only for the duration of
-  # the current tar_make() — a stale .rds reference from a previous run would
-  # point at a segment that no longer exists.
-#  tar_target(
-#    ltmle_data_list_shared,
-#    mori::share(ltmle_data_list),
-#    cue = tar_cue(mode = "always")
-#  ),
-#  tar_target(work_grid_t,     work_grid),
-#  tar_target(
-#    ltmle_one,
-#    fit_ltmle_one(
-#      regime_label    = work_grid_t$regime_label,
-#      imp_idx         = work_grid_t$imp_idx,
-#      ltmle_data_list = ltmle_data_list_shared,
-#      regimes         = regimes,
-#      Qform           = Qform,
-#      gform           = gform,
-#      sl_libs         = sl_libs
-#    ),
-#    pattern   = map(work_grid_t),
-#    iteration = "list"
-#  ),
-#  tar_target(ltmle_results,   pool_ltmle(ltmle_one, work_grid_t$regime_label)),
+  # LTMLE: prepare data, branch over (regime × imputation), pool.
+  # Each branch is its own SLURM job under future.batchtools, so workers
+  # almost never co-locate — ltmle_data_list is materialised from .rds per
+  # worker. mori::share() was used under crew (see main branch) when SLURM
+  # could pack workers onto one node; not useful here.
+  tar_target(ltmle_data_list, prepare_ltmle_data(wide_mids)),
+  tar_target(work_grid_t,     work_grid),
+  tar_target(
+    ltmle_one,
+    fit_ltmle_one(
+      regime_label    = work_grid_t$regime_label,
+      imp_idx         = work_grid_t$imp_idx,
+      ltmle_data_list = ltmle_data_list,
+      regimes         = regimes,
+      Qform           = Qform,
+      gform           = gform,
+      sl_libs         = sl_libs
+    ),
+    pattern   = map(work_grid_t),
+    iteration = "list"
+  ),
+  tar_target(ltmle_results,   pool_ltmle(ltmle_one, work_grid_t$regime_label)),
 
   # Sensitivity analyses — both depend only on wide_mids, run in parallel
   tar_target(mi_results,      run_gformula(wide_mids,
@@ -161,6 +151,6 @@ list(
   tar_target(iptw_results,    extract_iptw(iptw_fit, wide_mids, wide_data)),
 
   # Final comparison + report
-  tar_target(comparison,      assemble_comparison(mi_results, iptw_results)),
+  tar_target(comparison,      assemble_comparison(ltmle_results, mi_results, iptw_results)),
   tar_quarto(report,          "05_imputation.qmd")
 )
