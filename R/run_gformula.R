@@ -57,7 +57,7 @@ run_gformula <- function(wide_mids, wide_data_mi, M = 50) {
       purrr::reduce(c)
   )
 
-  out <- outvals |>
+  outvals |>
     tibble::as_tibble() |>
     tibble::rownames_to_column("Intervention") |>
     dplyr::transmute(
@@ -71,6 +71,6 @@ run_gformula <- function(wide_mids, wide_data_mi, M = 50) {
   # mice's loggedEvents (constant/collinear predictors dropped during the
   # counterfactual imputation) is discarded with `imps` otherwise; keep it on
   # the result so `attr(tar_read(mi_results), "loggedEvents")` can inspect it.
-  attr(out, "loggedEvents") <- imps$loggedEvents
-  out
+  logged_messages <- imps$loggedEvents
+  print(logged_messages)
 }
