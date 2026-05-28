@@ -15,7 +15,7 @@ run_mice <- function(wide_data, m = 5, maxit = 10, seed = 20260522) {
   pred_mat[, "pidp"] <- 0
   pred_mat["pidp", ] <- 0
 
-  imp <- mice::mice(
+  mice::mice(
     data            = wide_data,
     defaultMethod   = c("pmm", "logreg", "polyreg", "polr"),
     m               = m,
@@ -24,16 +24,4 @@ run_mice <- function(wide_data, m = 5, maxit = 10, seed = 20260522) {
     method          = method_list,
     predictorMatrix = pred_mat
   )
-
-  # Surface mice's loggedEvents (auto-dropped constant/collinear predictors) in
-  # the target's build log. They also remain on imp$loggedEvents for later use.
-  le <- imp$loggedEvents
-  if (is.null(le) || nrow(le) == 0) {
-    message("run_mice: no logged events.")
-  } else {
-    message("run_mice: ", nrow(le), " logged event(s) during imputation:")
-    message(paste(utils::capture.output(print(le)), collapse = "\n"))
-  }
-
-  imp
 }

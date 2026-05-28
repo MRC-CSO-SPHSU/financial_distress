@@ -34,6 +34,10 @@ run_gformula <- function(wide_mids, wide_data_mi, M = 50) {
   predictor_matrix["pcs_lagged_1", "sf12mcs_dv_0"] <- 1
   predictor_matrix["pcs_lagged_2", "sf12mcs_dv_1"] <- 1
 
+  ## pipd does not predict or is predicted
+  predictor_matrix["pipd", ] <- 0
+  predictor_matrix[, "pipd"] <- 0
+  
   predictor_matrix["regime", ] <- 1
   predictor_matrix["regime", "regime"] <- 0
 
@@ -68,8 +72,8 @@ run_gformula <- function(wide_mids, wide_data_mi, M = 50) {
     ) |>
     dplyr::bind_cols(regimes_3)
 
-  # Surface the g-formula imputation's loggedEvents in the target's build log
-  # (usually empty, since gFormulaImpute rebuilds its mids via mice::as.mids).
+  # Surface the g-formula imputation's loggedEvents (constant/collinear
+  # predictors dropped during the counterfactual imputation) in the build log.
   le <- imps$loggedEvents
   if (is.null(le) || nrow(le) == 0) {
     message("run_gformula: no logged events.")
