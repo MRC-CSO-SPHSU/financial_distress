@@ -33,7 +33,7 @@ run_gformula <- function(wide_mids, wide_data_mi, M = 50) {
   ## sf_12mcs_dv_t predicts pcs_lagged_t+1
   predictor_matrix["pcs_lagged_1", "sf12mcs_dv_0"] <- 1
   predictor_matrix["pcs_lagged_2", "sf12mcs_dv_1"] <- 1
-
+  
   predictor_matrix["regime", ] <- 1
   predictor_matrix["regime", "regime"] <- 0
 
@@ -57,7 +57,7 @@ run_gformula <- function(wide_mids, wide_data_mi, M = 50) {
       purrr::reduce(c)
   )
 
-  outvals |>
+  out <- outvals |>
     tibble::as_tibble() |>
     tibble::rownames_to_column("Intervention") |>
     dplyr::transmute(
@@ -67,4 +67,16 @@ run_gformula <- function(wide_mids, wide_data_mi, M = 50) {
       mi_ul     = `95% CI U`
     ) |>
     dplyr::bind_cols(regimes_3)
+
+  # Surface the g-formula imputation's loggedEvents (constant/collinear
+  # predictors dropped during the counterfactual imputation) in the build log.
+  le <- imps$loggedEvents
+  if (is.null(le) || nrow(le) == 0) {
+    message("run_gformula: no logged events.")
+  } else {
+    message("run_gformula: ", nrow(le), " logged event(s) during imputation:")
+    message(paste(utils::capture.output(print(le)), collapse = "\n"))
+  }
+
+  out
 }

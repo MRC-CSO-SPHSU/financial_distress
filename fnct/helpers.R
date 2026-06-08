@@ -34,7 +34,7 @@ make_wide <- function(df, id_col, time_col, base_cols, outcome, ..., static = FA
       names_from = {{time_col}},
       values_from = -c({{id_col}}, {{time_col}}, {{base_cols}})) |>
     dplyr::select(
-      {{id_col}},
+#      {{id_col}},
       {{base_cols}},
       ends_with("0"),
       ends_with("1"),

@@ -24,7 +24,6 @@ pacman::p_load(gfoRmula,
                colorBlindness,
                ltmle,
                mice,
-               mori,
                SuperLearner,
                targets,
                knitr)
@@ -272,12 +271,11 @@ print(positivity_results(wide_mids))
 ```
 
 # Main analysis: LTMLE with multiple imputation
-The LTMLE sweep over the 8 regime × imputation pairs is computed by the targets DAG (`R/fit_ltmle_one.R` + `R/pool_ltmle.R`); each branch dispatches as a separate SLURM job via `crew.cluster`. The pooled tibble is read in below.
+The LTMLE sweep over the 8 regime × imputation pairs is computed by the targets DAG (`R/fit_ltmle_one.R` + `R/pool_ltmle.R`); each branch dispatches as a separate SLURM job via `future.batchtools` (template: `slurm.tmpl`). The pooled tibble is read in below.
 
 ```{r ltmle-mi}
 #| output: false
 #| include: true
-#| eval: false
 ltmle_results <- tar_read(ltmle_results, store = tar_store)
 ```
 
@@ -344,6 +342,8 @@ results_comparison <- comparison |>
   labs(x = "Mean MCS score (95% CI)", y = NULL) +
   facet_wrap(~method, ncol = 1) +
   theme(panel.grid.minor = element_blank())
+
+print(results_comparison)
 
 ggsave(
   filename = here::here("figs", "results_comparison.png"),

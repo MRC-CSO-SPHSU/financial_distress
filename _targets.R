@@ -5,57 +5,57 @@
 # Statistical code (formulas, regimes, SL library, Rubin pooling) is preserved
 # verbatim — extracted from the original chunks into R/ functions.
 #
-# Local: `tar_make()` runs the DAG in-process.
-# Cluster: same call dispatches LTMLE branches as SLURM jobs via crew.cluster.
+# Parallel backend: future + future.batchtools. The controller process running
+# tar_make_future() submits each worker target as its own SLURM job via the
+# slurm.tmpl template; locally it falls back to background R processes via
+# future.callr. (Branch `main` uses crew.cluster instead; see exp/future
+# commit history for the migration rationale.)
 
 pacman::p_load(targets,
                tarchetypes,
-               crew,
-               crew.cluster)
+               future,
+               future.batchtools,
+               future.callr)
 
-# Detect SLURM at runtime: `sbatch` on PATH. If detected, dispatch via crew.cluster. Otherwise fall
-# back to a local crew controller. This allows the same code to run both locally and on the cluster.
-on_slurm <- nzchar(Sys.which("sbatch"))
+# Detect SLURM at runtime: require both a SLURM job context AND a working
+# sbatch on PATH. The conjunction prevents the local fallback from triggering
+# on login nodes that happen to have sbatch but no SLURM_JOB_ID.
+on_slurm <- nzchar(Sys.getenv("SLURM_JOB_ID")) && nzchar(Sys.which("sbatch"))
 
-controller_obj <- if (on_slurm) {
-  crew_controller_slurm(
-    name                           = "fd_slurm",
-    workers                        = 4,
-    seconds_idle                   = 300,
-    options_cluster                = crew_options_slurm(
-      script_lines = c(
-        "module purge",
-        "module load apps/miniforge",
-        'source "$(conda info --base)/etc/profile.d/conda.sh"',
-        "conda activate quarto",
-        "export OMP_NUM_THREADS=1",
-        "export OPENBLAS_NUM_THREADS=1",
-        "export MKL_NUM_THREADS=1",
-        "export RANGER_NUM_THREADS=1"
-      ),
-      cpus_per_task            = 2,
-      memory_gigabytes_per_cpu = 6,
-      time_minutes             = 30,
-      partition                = NULL  # set if your cluster requires one
+if (on_slurm) {
+  future::plan(
+    future.batchtools::batchtools_slurm,
+    template  = "slurm.tmpl",
+    resources = list(
+      ncpus    = 2,
+      memory   = 24 * 1024,  # MB per CPU  (= 48 GB per worker).
+      walltime = 60 * 60,    # seconds     (= 60 min wall; LTMLE branches can run long)
+      account  = "none"
     )
   )
 } else {
-  crew::crew_controller_local(name = "fd_local", workers = 4)
+  future::plan(future.callr::callr, workers = 4)
 }
+
+message("=== TARGETS FUTURE PLAN ===")
+message("hostname:        ", Sys.info()[["nodename"]])
+message("SLURM_JOB_ID:    '", Sys.getenv("SLURM_JOB_ID"), "'")
+message("Sys.which sbatch: '", Sys.which("sbatch"), "'")
+message("on_slurm:        ", on_slurm)
+message("plan:            ", paste(class(future::plan()), collapse = "/"))
+message("===========================")
 
 # ---- Packages attached to every target's evaluation environment ------------
 tar_option_set(
   packages = c(
     "data.table", "dplyr", "tidyr", "tibble", "purrr", "magrittr",
     "rlang", "here",
-    "mice", "ltmle", "SuperLearner", "ranger", "gam", "arm",
+    "mice", "ltmle", "SuperLearner", "xgboost", "gam", "arm",
     "gFormulaMI",
-    "mori",
     "quarto"
   ),
   format = "rds",
-  seed   = 20260522,
-  controller = controller_obj
+  seed   = 20260522
 )
 
 # ---- Source extracted functions (R/) and project helpers (fnct/) -----------
@@ -69,7 +69,7 @@ mice_maxit  <- 10   # final: 15
 gformula_M  <- 20   # final: 50
 seed_random <- 20260522
 
-sl_libs <- c("SL.mean", "SL.glm", "SL.bayesglm", "SL.gam", "SL.ranger")
+sl_libs <- c("SL.mean", "SL.glm", "SL.bayesglm", "SL.gam", "SL.xgboost.ltmle")
 
 regimes <- list(
   "0-0-0" = c(0, 0, 0),
@@ -120,37 +120,28 @@ list(
                                        maxit = mice_maxit,
                                        seed  = seed_random)),
 
-  # LTMLE: prepare data, branch over (regime × imputation), pool
-#  tar_target(ltmle_data_list, prepare_ltmle_data(wide_mids)),
-
-  # Share imputed datasets through OS shared memory so workers co-located on
-  # the same node attach via zero-copy ALTREP instead of holding independent
-  # copies. mori only shares within a machine, so the saving materialises only
-  # for workers SLURM packs onto the same node (or under crew_controller_local).
-  # `cue = "always"` because the shared segment lives only for the duration of
-  # the current tar_make() — a stale .rds reference from a previous run would
-  # point at a segment that no longer exists.
-#  tar_target(
-#    ltmle_data_list_shared,
-#    mori::share(ltmle_data_list),
-#    cue = tar_cue(mode = "always")
-#  ),
-#  tar_target(work_grid_t,     work_grid),
-#  tar_target(
-#    ltmle_one,
-#    fit_ltmle_one(
-#      regime_label    = work_grid_t$regime_label,
-#      imp_idx         = work_grid_t$imp_idx,
-#      ltmle_data_list = ltmle_data_list_shared,
-#      regimes         = regimes,
-#      Qform           = Qform,
-#      gform           = gform,
-#      sl_libs         = sl_libs
-#    ),
-#    pattern   = map(work_grid_t),
-#    iteration = "list"
-#  ),
-#  tar_target(ltmle_results,   pool_ltmle(ltmle_one, work_grid_t$regime_label)),
+  # LTMLE: prepare data, branch over (regime × imputation), pool.
+  # Each branch is its own SLURM job under future.batchtools, so workers
+  # almost never co-locate — ltmle_data_list is materialised from .rds per
+  # worker. mori::share() was used under crew (see main branch) when SLURM
+  # could pack workers onto one node; not useful here.
+  tar_target(ltmle_data_list, prepare_ltmle_data(wide_mids)),
+  tar_target(work_grid_t,     work_grid),
+  tar_target(
+    ltmle_one,
+    fit_ltmle_one(
+      regime_label    = work_grid_t$regime_label,
+      imp_idx         = work_grid_t$imp_idx,
+      ltmle_data_list = ltmle_data_list,
+      regimes         = regimes,
+      Qform           = Qform,
+      gform           = gform,
+      sl_libs         = sl_libs
+    ),
+    pattern   = map(work_grid_t),
+    iteration = "list"
+  ),
+  tar_target(ltmle_results,   pool_ltmle(ltmle_one, work_grid_t$regime_label)),
 
   # Sensitivity analyses — both depend only on wide_mids, run in parallel
   tar_target(mi_results,      run_gformula(wide_mids,
@@ -160,6 +151,6 @@ list(
   tar_target(iptw_results,    extract_iptw(iptw_fit, wide_mids, wide_data)),
 
   # Final comparison + report
-  tar_target(comparison,      assemble_comparison(mi_results, iptw_results)),
-  tar_quarto(report,          "05_imputation.qmd")
+  tar_target(comparison,      assemble_comparison(ltmle_results, mi_results, iptw_results)),
+  tarchetypes::tar_quarto(report,          "05_imputation.qmd")
 )
