@@ -152,5 +152,5 @@ list(
 
   # Final comparison + report
   tar_target(comparison,      assemble_comparison(ltmle_results, mi_results, iptw_results)),
-  tar_quarto(report,          "05_imputation.qmd")
+  tarchetypes::tar_quarto(report,          "05_imputation.qmd")
 )
