@@ -1,3 +1,5 @@
+#@ Pending: Adding sandwich robust SEs to the final model
+
 run_iptw <- function(wide_mids) {
   # Fit denominator models, build per-imputation IPTW weights, and run the
   # weighted outcome model inside one with() so everything stays aligned with
