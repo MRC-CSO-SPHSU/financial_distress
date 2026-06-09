@@ -20,6 +20,7 @@ fit_ltmle_one <- function(regime_label, imp_idx, ltmle_data_list,
     SL.library      = sl_libs,
     estimate.time   = FALSE,
     variance.method = "ic",
-    Yrange          = c(0, 1)
+    Yrange          = c(0, 1),
+    gbounds = c(0.05, 0.95)
   )
 }
