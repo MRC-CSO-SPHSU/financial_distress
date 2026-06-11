@@ -423,7 +423,10 @@ clean_data <- function(DT) {
   
   # convert house ownership to factor
   raw_data[, home_owner := factor(home_owner, levels = c(0L, 1L), labels = c("Renter", "Owner"))]
-  
+
+  # convert benefits receipt to factor (after econ_benefits_* derivations above)
+  raw_data[, econ_benefits := factor(econ_benefits, levels = c(0L, 1L), labels = c("No benefits", "Benefits"))]
+
   # rename gender_probe to sex_dv (overwrite original sex_dv which has 1/2 coding and is less intuitive than 0/1)
   raw_data[, sex_dv := gender_probe]
   ## changing sex_dv == -9 to NA (missing) to match original coding
@@ -447,9 +450,19 @@ clean_data <- function(DT) {
                   "East of England", "London", "South East", "South West", "Wales", "Scotland", "Northern Ireland")
   raw_data[, gor_dv_fact := factor(gor_dv, levels = 1:12, labels = gor_labels)]
 
-  # drop missing marital status (mastat_dv)
+  # marital status (mastat_dv): recode to partnered (1) vs not partnered (0)
+  # negatives (-9 missing, -8 inapplicable, -2 refusal, -1 don't know) and
+  # 0 "Child under 16" -> NA (no adult marital status), then dropped.
   raw_data[mastat_dv < 0, mastat_dv := NA_integer_]
+  ## partnered     = Married (2), Same-sex civil partnership (3), Living as couple (10)
+  ## not partnered = Single/never married (1), Separated but legally married (4),
+  ##                 Divorced (5), Widowed (6), Separated from civil partner (7),
+  ##                 Former civil partner (8), Surviving civil partner (9)
+  raw_data[, mastat_dv := fifelse(mastat_dv %in% c(2L, 3L, 10L), 1L,
+                            fifelse(mastat_dv %in% c(1L, 4L, 5L, 6L, 7L, 8L, 9L), 0L, NA_integer_))]
   raw_data <- raw_data[!is.na(mastat_dv)]
+  # convert to factor so mice's logreg method matches the variable type
+  raw_data[, mastat_dv := factor(mastat_dv, levels = c(0L, 1L), labels = c("Not partnered", "Partnered"))]
 
   # scsf1, sf12mcs_dv and sf12pcs_dv recode missing from negative to NA
   raw_data[scsf1 < 0, scsf1 := NA_integer_]
