@@ -1,15 +1,24 @@
 build_wide_data <- function(pop_data) {
   int_data_wide <- pop_data[wave %in% 2:5][, t0 := t0 - 2][
-      , `:=`(pcs_lagged = shift(sf12pcs_dv, type = "lag")),
+      , `:=`(pcs_lagged = shift(sf12pcs_dv, type = "lag"),
+             dnc_lagged = shift(dnc, type = "lag"),
+             home_owner_lagged = shift(home_owner, type = "lag"),
+             econ_benefits_lagged = shift(econ_benefits, type = "lag"),
+             mastat_lagged = shift(mastat_dv, type = "lag")
+            ),
         by = pidp
     ][wave %in% 3:5]
 
-  missings <-
-    int_data_wide[is.na(sf12mcs_dv) |
-               is.na(pcs_lagged) | is.na(sex_dv_base) | is.na(race_base) |
-               is.na(econ_dist_bin) | is.na(hiqual_dv_base), .(pidp)]
+  # Drop pidps with no usable MCS: baseline missing, OR both intermediate waves (t0=2 and t0=3) missing.
+  # Operates per-pidp on long data
+  bad_pidps <- int_data_wide[
+    , .(base_na = any(is.na(sf12mcs_dv_base)),
+        t0_na   = any(t0 == 2L & is.na(sf12mcs_dv)),
+        t3_na   = any(t0 == 3L & is.na(sf12mcs_dv))),
+    by = pidp
+  ][base_na | (t0_na & t3_na), pidp]
 
-  final_data <- int_data_wide
+  final_data <- int_data_wide[!pidp %in% bad_pidps]
 
   intervention_pattern_3 <- expand_grid(0:1, 0:1, 0:1) |>
     t() |>
@@ -19,14 +28,18 @@ build_wide_data <- function(pop_data) {
   wide_data <- final_data |>
     mutate(econ_dist_bin = as.factor(econ_dist_bin)) |>
     make_wide(
-      id_col = pidp,
-      time_col = t0,
+      pidp,
+      t0,
       base_cols = c(sex_dv_base,
                     hiqual_dv_base,
                     race_base),
       outcome = sf12mcs_dv,
       pcs_lagged,
       econ_dist_bin,
+      dnc_lagged,
+      home_owner_lagged,
+      econ_benefits_lagged,
+      mastat_lagged,
       waves = c(0, 1, 2)
     )
 
