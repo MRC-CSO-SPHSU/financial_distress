@@ -8,8 +8,7 @@
 # Parallel backend: future + future.batchtools. The controller process running
 # tar_make_future() submits each worker target as its own SLURM job via the
 # slurm.tmpl template; locally it falls back to background R processes via
-# future.callr. (Branch `main` uses crew.cluster instead; see exp/future
-# commit history for the migration rationale.)
+# future.callr.
 
 pacman::p_load(targets,
                tarchetypes,
