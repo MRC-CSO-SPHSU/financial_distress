@@ -1,7 +1,7 @@
 build_wide_data <- function(pop_data) {
   int_data_wide <- pop_data[wave %in% 2:5][, t0 := t0 - 2][
       , `:=`(pcs_lagged = shift(sf12pcs_dv, type = "lag"),
-             dnc_lagged = shift(dnc, type = "lag"),
+             dnc_lagged = shift(dnc_fact, type = "lag"),
              home_owner_lagged = shift(home_owner, type = "lag"),
              econ_benefits_lagged = shift(econ_benefits, type = "lag"),
              mastat_lagged = shift(mastat_dv, type = "lag")
@@ -32,7 +32,10 @@ build_wide_data <- function(pop_data) {
       t0,
       base_cols = c(sex_dv_base,
                     hiqual_dv_base,
-                    race_base),
+                    race_base,
+                    gor_dv_fact_base,
+                    sf12mcs_dv_base,
+                    age_dv_base),
       outcome = sf12mcs_dv,
       pcs_lagged,
       econ_dist_bin,
@@ -40,6 +43,8 @@ build_wide_data <- function(pop_data) {
       home_owner_lagged,
       econ_benefits_lagged,
       mastat_lagged,
+      econ_emp_bin_fact,
+      log_income,
       waves = c(0, 1, 2)
     )
 
