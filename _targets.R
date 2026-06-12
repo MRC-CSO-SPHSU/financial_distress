@@ -1,6 +1,6 @@
 # _targets.R — pipeline orchestration for the financial_distress UKHLS analysis.
 #
-# Heavy compute (mice, LTMLE, gFormulaImpute, IPTW) lives here as cached targets;
+# Heavy compute (mice, LTMLE, gFormulaImpute) lives here as cached targets;
 # report/05_imputation.qmd is a thin report that reads them via tar_read().
 # Statistical code (formulas, regimes, SL library, Rubin pooling) is preserved
 # verbatim — extracted from the original chunks into R/ functions.
@@ -142,14 +142,11 @@ list(
   ),
   tar_target(ltmle_results,   pool_ltmle(ltmle_one, work_grid_t$regime_label)),
 
-  # Sensitivity analyses — both depend only on wide_mids, run in parallel
+  # Sensitivity analyses - depend only on wide_mids, thus it runs in parallel
   tar_target(mi_results,      run_gformula(wide_mids,
                                            wide_data_mi = wide_data,
                                            M = gformula_M)),
-  tar_target(iptw_fit,        run_iptw(wide_mids)),
-  tar_target(iptw_results,    extract_iptw(iptw_fit, wide_mids, wide_data)),
-
   # Final comparison + report
-  tar_target(comparison,      assemble_comparison(ltmle_results, mi_results, iptw_results)),
+  tar_target(comparison,      assemble_comparison(ltmle_results, mi_results)),
   tarchetypes::tar_quarto(report,          "05_imputation.qmd")
 )
