@@ -57,8 +57,7 @@ test_that("run_mice produces expected output", {
   expect_s3_class(mids, "mids")
   expect_equal(mids$m, 2L)
 
-  # diagnosis must print BEFORE the assertion below: in testthat a failed
-  # expectation aborts the rest of the test_that block
+  # dianosing mice imputation
   source(here::here("tests", "diagnose_mice.R"))
   diagnose_mice(mids, wide_data,
                 plot_dir = here::here("tests", "figs", "mice_diag"))
