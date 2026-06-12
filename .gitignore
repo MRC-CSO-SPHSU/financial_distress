@@ -10,6 +10,12 @@ data/*
 # Figures
 figs/*
 
+# Outputs
+outputs/*
+
+# Test figures
+tests/figs/
+
 # Legacy code
 legacy/
 /.quarto/
@@ -18,6 +24,7 @@ legacy/
 # Claude
 CLAUDE.md
 .claude
+docs/superpowers/
 
 # Reports — ignore rendered outputs but track .qmds 
 report/*
