@@ -212,7 +212,7 @@ work_grid <- tidyr::expand_grid(
 # ---- DAG -------------------------------------------------------------------
 list(
   # Data prep
-  tar_target(pop_data,        import_data(force = TRUE) |> clean_data() |> preproc_data()),
+  tar_target(pop_data,        import_data(force = FALSE) |> clean_data() |> preproc_data()),
   tar_target(wide_data,       build_wide_data(pop_data)),
 
   # Multiple imputation (single-threaded; one target, cached)
