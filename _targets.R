@@ -45,9 +45,14 @@ message("plan:            ", paste(class(future::plan()), collapse = "/"))
 message("===========================")
 
 # ---- Packages attached to every target's evaluation environment ------------
+# bit64 is required (not redundant with data.table): pidp is integer64, and
+# without bit64's S3 methods loaded in a worker, data.table's `col %in% vec`
+# join-optimisation coerces the integer64 RHS to double and bmerge errors
+# ("Incompatible join types: x.pidp integer64 vs i.pidp double"). The wide_data
+# worker hit this because build_wide_data() never references bit64:: itself.
 tar_option_set(
   packages = c(
-    "data.table", "dplyr", "tidyr", "tibble", "purrr", "magrittr",
+    "data.table", "bit64", "dplyr", "tidyr", "tibble", "purrr", "magrittr",
     "rlang", "here",
     "mice", "ltmle", "SuperLearner", "xgboost", "gam", "arm",
     "gFormulaMI",
