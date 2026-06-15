@@ -62,7 +62,6 @@ for (f in c(list.files("R",    "\\.R$", full.names = TRUE),
             list.files("fnct", "\\.R$", full.names = TRUE))) source(f)
 
 # ---- Configuration ---------------------------------------------------------
-# Dev settings; flip to final values for the production run.
 mice_m      <- 5    # final: 35
 mice_maxit  <- 10   # final: 15
 gformula_M  <- 20   # final: 50
@@ -81,24 +80,127 @@ regimes <- list(
   "1-1-1" = c(1, 1, 1)
 )
 
+# Qform — one entry per L/Y node, but ltmle collapses consecutive L/Y nodes into
+# blocks locked at the Y nodes, so only the 3 Y regressions are needed.
 Qform <- c(
-    pcs_lagged_0 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base",
-    pcs_lagged_1 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base + econ_dist_bin_0 + pcs_lagged_0 + sf12mcs_dv_0",
-    pcs_lagged_2 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base +
-                               econ_dist_bin_0 + pcs_lagged_0 + pcs_lagged_1 +
-                               econ_dist_bin_1 + sf12mcs_dv_1 + sf12mcs_dv_0",
-    sf12mcs_dv_0 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_0 + econ_dist_bin_0",
-    sf12mcs_dv_1 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_0 + 
-                               econ_dist_bin_0 + pcs_lagged_1 + econ_dist_bin_1 + sf12mcs_dv_0",
-    sf12mcs_dv_2 = "Q.kplus1 ~ race_base + sex_dv_base + hiqual_dv_base + 
-                               pcs_lagged_0 + econ_dist_bin_0 + pcs_lagged_1 + econ_dist_bin_1 + 
-                               pcs_lagged_2 + econ_dist_bin_2 + sf12mcs_dv_0 + sf12mcs_dv_1"
+    sf12mcs_dv_0 = "Q.kplus1 ~ sex_dv_base + 
+                               hiqual_dv_base + 
+                               race_base + 
+                               gor_dv_fact_base + 
+                               age_dv_base + 
+                               sf12mcs_dv_base +
+                               pcs_lagged_0 + 
+                               econ_benefits_lagged_0 + 
+                               home_owner_lagged_0 + 
+                               mastat_lagged_0 + 
+                               dnc_lagged_0 + 
+                               log_income_0 + 
+                               econ_emp_bin_fact_0 +
+                               econ_dist_bin_0",
+    sf12mcs_dv_1 = "Q.kplus1 ~ sex_dv_base + 
+                               hiqual_dv_base + 
+                               race_base + 
+                               gor_dv_fact_base + 
+                               age_dv_base + 
+                               sf12mcs_dv_base +
+                               pcs_lagged_0 + 
+                               econ_benefits_lagged_0 + 
+                               home_owner_lagged_0 + 
+                               mastat_lagged_0 + 
+                               dnc_lagged_0 + 
+                               log_income_0 + 
+                               econ_emp_bin_fact_0 +
+                               econ_dist_bin_0 + 
+                               sf12mcs_dv_0 +
+                               pcs_lagged_1 + 
+                               econ_benefits_lagged_1 + 
+                               home_owner_lagged_1 + 
+                               mastat_lagged_1 + 
+                               dnc_lagged_1 + 
+                               log_income_1 + 
+                               econ_emp_bin_fact_1 +
+                               econ_dist_bin_1",
+    sf12mcs_dv_2 = "Q.kplus1 ~ sex_dv_base + 
+                               hiqual_dv_base + 
+                               race_base + 
+                               gor_dv_fact_base + 
+                               age_dv_base + 
+                               sf12mcs_dv_base +
+                               pcs_lagged_0 + 
+                               econ_benefits_lagged_0 + 
+                               home_owner_lagged_0 + 
+                               mastat_lagged_0 + 
+                               dnc_lagged_0 + 
+                               log_income_0 + 
+                               econ_emp_bin_fact_0 +
+                               econ_dist_bin_0 + 
+                               sf12mcs_dv_0 +
+                               pcs_lagged_1 + 
+                               econ_benefits_lagged_1 + 
+                               home_owner_lagged_1 + 
+                               mastat_lagged_1 + 
+                               dnc_lagged_1 + 
+                               log_income_1 + 
+                               econ_emp_bin_fact_1 +
+                               econ_dist_bin_1 + 
+                               sf12mcs_dv_1 +
+                               pcs_lagged_2 + 
+                               econ_benefits_lagged_2 + 
+                               home_owner_lagged_2 + 
+                               mastat_lagged_2 + 
+                               dnc_lagged_2 + 
+                               log_income_2 + 
+                               econ_emp_bin_fact_2 +
+                               econ_dist_bin_2"
 )
 
+# gform — one entry per A node. 
 gform <- c(
-    econ_dist_bin_0 = "econ_dist_bin_0 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_0",
-    econ_dist_bin_1 = "econ_dist_bin_1 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_1 + econ_dist_bin_0 + sf12mcs_dv_0",
-    econ_dist_bin_2 = "econ_dist_bin_2 ~ race_base + sex_dv_base + hiqual_dv_base + pcs_lagged_2 + econ_dist_bin_0 + econ_dist_bin_1 + sf12mcs_dv_1 + sf12mcs_dv_0"
+    econ_dist_bin_0 = "econ_dist_bin_0 ~ sex_dv_base + 
+                                         hiqual_dv_base + 
+                                         race_base + 
+                                         gor_dv_fact_base + 
+                                         age_dv_base + 
+                                         sf12mcs_dv_base +
+                                         pcs_lagged_0 + 
+                                         econ_benefits_lagged_0 + 
+                                         home_owner_lagged_0 + 
+                                         mastat_lagged_0 + 
+                                         dnc_lagged_0 + 
+                                         log_income_0 + 
+                                         econ_emp_bin_fact_0",
+    econ_dist_bin_1 = "econ_dist_bin_1 ~ sex_dv_base + 
+                                         hiqual_dv_base + 
+                                         race_base + 
+                                         gor_dv_fact_base + 
+                                         age_dv_base + 
+                                         sf12mcs_dv_base +
+                                         pcs_lagged_1 + 
+                                         econ_benefits_lagged_1 + 
+                                         home_owner_lagged_1 + 
+                                         mastat_lagged_1 + 
+                                         dnc_lagged_1 + 
+                                         log_income_1 + 
+                                         econ_emp_bin_fact_1 +
+                                         econ_dist_bin_0 + 
+                                         sf12mcs_dv_0",
+    econ_dist_bin_2 = "econ_dist_bin_2 ~ sex_dv_base + 
+                                         hiqual_dv_base + 
+                                         race_base + 
+                                         gor_dv_fact_base + 
+                                         age_dv_base + 
+                                         sf12mcs_dv_base +
+                                         pcs_lagged_2 + 
+                                         econ_benefits_lagged_2 + 
+                                         home_owner_lagged_2 + 
+                                         mastat_lagged_2 + 
+                                         dnc_lagged_2 + 
+                                         log_income_2 + 
+                                         econ_emp_bin_fact_2 +
+                                         econ_dist_bin_1 + 
+                                         sf12mcs_dv_1 + 
+                                         econ_dist_bin_0 + 
+                                         sf12mcs_dv_0"
 )
 
 # (regime × imputation) grid for dynamic branching of the LTMLE step.
@@ -148,5 +250,5 @@ list(
                                            M = gformula_M)),
   # Final comparison + report
   tar_target(comparison,      assemble_comparison(ltmle_results, mi_results)),
-  tarchetypes::tar_quarto(report,          "05_imputation.qmd")
+  tarchetypes::tar_quarto(report,          "06_full_models.qmd")
 )
