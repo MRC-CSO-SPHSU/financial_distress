@@ -439,7 +439,7 @@ clean_data <- function(DT) {
   # rename imputed age_probe to age_dv (overwrite original age_dv which has negative values for missing)
   raw_data[, age_dv := age_probe]
 
-  # recoding gor_dv==-9 to NA and fill gov_dv with last observation carried forward within person, then backward fill to handle leading NAs
+  # recoding gor_dv==-9 to NA and then forward/backward fill within person to impute missing region of residence (gor_dv)
   raw_data[gor_dv == -9, gor_dv := NA_integer_]
   setorder(raw_data, pidp, wave)
   raw_data[, gor_dv := nafill(gor_dv, type = "locf"), by = pidp]  # forward fill
@@ -520,7 +520,7 @@ preproc_data <- function(DT) {
   exp_data[, race      := race[!is.na(race)][1L],      by = pidp]          # time-invariant: broadcast
   exp_data[, hiqual_dv := nafill(hiqual_dv, type = "locf"), by = pidp][, `:=`(hiqual_dv = as.factor(hiqual_dv))]     # education: forward only, as factor
 
-  # ---- 3. Wave-1 baseline snapshot ----
+  # ---- 3. Wave-1 baseline variable creation ----
   base_cols <- c("pidp", "age_dv", "sex_dv", "gor_dv", "gor_dv_fact", "mastat_dv",
                  "home_owner", "dnc", "hiqual_dv", "race",
                  "sf12mcs_dv", "sf12pcs_dv")
@@ -548,10 +548,13 @@ preproc_data <- function(DT) {
     default    = "2+"
   ), levels = c("Zero", "One", "2+"))]
   
+  #--- Transforming econ_emp_bin into factor variable ----
+  pop_data[, econ_emp_bin_fact := as.factor(econ_emp_bin)]
+
   # ---- 5. Final column selection ----
   final_cols <- c("pidp", "wave", "response", "t0",
                   "sf12mcs_dv", "sf12pcs_dv", "log_income",
-                  "econ_emp_bin", "econ_dist", "econ_dist_bin", "econ_benefits",
+                  "econ_emp_bin", "econ_emp_bin_fact", "econ_dist", "econ_dist_bin", "econ_benefits",
                   "gor_dv", "mastat_dv", "home_owner", "dnc", "dnc_fact", "age_dv",
                   "age_dv_base", "sex_dv_base", "gor_dv_base", "mastat_dv_base",
                   "home_owner_base", "dnc_base", "hiqual_dv_base", "race_base",
