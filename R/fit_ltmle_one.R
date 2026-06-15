@@ -11,7 +11,12 @@ fit_ltmle_one <- function(regime_label, imp_idx, ltmle_data_list,
   ltmle::ltmle(
     data            = ltmle_data_list[[imp_idx]],
     Anodes          = c("econ_dist_bin_0", "econ_dist_bin_1", "econ_dist_bin_2"),
-    Lnodes          = c("pcs_lagged_0",    "pcs_lagged_1",    "pcs_lagged_2"),
+    # All time-varying confounders measured after A_0 must be L-nodes (ltmle
+    # requires every column after the first A/C node to be an A/C/L/Y node).
+    Lnodes          = c("pcs_lagged_1", "econ_benefits_lagged_1", "home_owner_lagged_1",
+                        "mastat_lagged_1", "dnc_lagged_1", "log_income_1", "econ_emp_bin_fact_1",
+                        "pcs_lagged_2", "econ_benefits_lagged_2", "home_owner_lagged_2",
+                        "mastat_lagged_2", "dnc_lagged_2", "log_income_2", "econ_emp_bin_fact_2"),
     Ynodes          = c("sf12mcs_dv_0",    "sf12mcs_dv_1",    "sf12mcs_dv_2"),
     survivalOutcome = FALSE,
     Qform           = Qform,
