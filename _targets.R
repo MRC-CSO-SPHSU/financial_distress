@@ -67,9 +67,9 @@ for (f in c(list.files("R",    "\\.R$", full.names = TRUE),
             list.files("fnct", "\\.R$", full.names = TRUE))) source(f)
 
 # ---- Configuration ---------------------------------------------------------
-mice_m      <- 5    # final: 35
-mice_maxit  <- 10   # final: 15
-gformula_M  <- 20   # final: 50
+mice_m      <- 35    # final: 35
+mice_maxit  <- 15   # final: 15
+gformula_M  <- 50   # final: 50
 seed_random <- 20260522
 
 sl_libs <- c("SL.mean", "SL.glm", "SL.bayesglm", "SL.gam", "SL.xgboost.ltmle")
