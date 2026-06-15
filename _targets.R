@@ -28,7 +28,7 @@ if (on_slurm) {
     resources = list(
       ncpus    = 2,
       memory   = 24 * 1024,  # MB per CPU  (= 48 GB per worker).
-      walltime = 60 * 60,    # seconds     (= 60 min wall; LTMLE branches can run long)
+      walltime = 6 * 60 * 60,    # seconds     (= 60 min wall; LTMLE branches can run long)
       account  = "none"
     )
   )
@@ -220,26 +220,11 @@ list(
   tar_target(pop_data,        import_data(force = FALSE) |> clean_data() |> preproc_data()),
   tar_target(wide_data,       build_wide_data(pop_data)),
 
-  # Multiple imputation (single-threaded; one target, cached).
-  # Final config (m=35, maxit=15) runs all imputations sequentially in one
-  # process and blows past the global 60-min walltime, so this target gets its
-  # own longer wall. Override replaces the plan's resource list for this job
-  # only, so all template placeholders (ncpus/memory/walltime/account) are
-  # restated; the LTMLE branch jobs keep the 60-min default.
+  # Multiple imputation (single-threaded; one target, cached)
   tar_target(wide_mids,       run_mice(wide_data,
                                        m     = mice_m,
                                        maxit = mice_maxit,
-                                       seed  = seed_random),
-             resources = tar_resources(
-               future = tar_resources_future(
-                 resources = list(
-                   ncpus    = 2,
-                   memory   = 24 * 1024,   # MB per CPU (= 48 GB)
-                   walltime = 6 * 60 * 60, # seconds (= 6 h wall for final mice)
-                   account  = "none"
-                 )
-               )
-             )),
+                                       seed  = seed_random)),
 
   # LTMLE: prepare data, branch over (regime × imputation), pool.
   # Each branch is its own SLURM job under future.batchtools, so workers
