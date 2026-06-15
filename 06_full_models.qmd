@@ -40,10 +40,10 @@ source(here::here("fnct", "helpers.R"))
 In this model, we include 3 waves of data (waves 3 to 5) and adjust for time-invariant covariates and the physical component summary (PCS) score. The model is specified as follows: \
 **Notation** \
 - $TI_{cov}$: Time-invariant covariates: \
-    - Sex \
-    - Ethnicity \
-    - Highest educational qualification \
-    - Region of residence (GOR) \
+    - Sex (sex_dv) \
+    - Ethnicity (race_dv) \
+    - Highest educational qualification (hiqual_dv) \
+    - Region of residence (GOR) (gor_dv) \
 - $PCS_{t-1}$, $PCS_{t}$, $PCS_{t+1}$: Physical component summary score at time points t-1, t, and t+1 \
 - $IC_{t}$, $IC_{t+1}$, $IC_{t+2}$: Intermediate confounders (lagged) at time points t, t+1, and t+2, which include: \
    - Number of dependents (0, 1, 2+) \
@@ -196,16 +196,6 @@ ltmle_results <- tar_read(ltmle_results, store = tar_store)
 mi_results <- tar_read(mi_results, store = tar_store)
 ```
 
-## IPTW with multiple imputation
-
-```{r iptw-mi}
-#| output: false
-#| include: false
-iptw_fit  <- tar_read(iptw_fit, store = tar_store)
-iptw_pool <- mice::pool(iptw_fit)
-summary(iptw_pool)
-```
-
 ### Table with results from all models
 ```{r table-results}
 #| output: true
@@ -229,8 +219,8 @@ results_comparison <- comparison |>
   ) |>
   mutate(
     method = factor(method,
-                    levels = c("ltmle", "mi", "iptw_sw"),
-                    labels = c("LTMLE", "G-Formula MI", "IPTW")),
+                    levels = c("ltmle", "mi"),
+                    labels = c("LTMLE", "G-Formula MI")),
     intervention = factor(intervention,
                           levels = c("0-0-0", "0-0-1", "0-1-0", "0-1-1", "1-0-0", "1-0-1", "1-1-0", "1-1-1"),
   )) |>
