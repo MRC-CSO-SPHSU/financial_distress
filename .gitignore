@@ -13,8 +13,9 @@ figs/*
 # Outputs
 outputs/*
 
-# Test figures
+# Test files
 tests/figs/
+tests/matrix/
 
 # Legacy code
 legacy/
