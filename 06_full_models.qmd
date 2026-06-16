@@ -116,7 +116,7 @@ DiagrammeR::grViz("
                   E1 -> Y1 
                   E2 -> Y2
                   
-                  Y0 -> C1, J1, I1
+                  Y0 -> C1, J1, I1, E1
                   Y1 -> C2, J2, I2
                   Y1 -> E2
 
