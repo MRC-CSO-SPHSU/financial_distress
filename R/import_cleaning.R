@@ -1,13 +1,3 @@
-#######################################################################################################
-# PROJECT: Financial distress and health outcomes. A LTMLE analysis of the UKHLS
-# DESCRIPTION: Function to import and clean data for the UKHLS
-#######################################################################################################
-# COUNTRY: UK
-# DATA: UKHLS EUL version - UKDA-6614-stata [to wave o] and WAS EUL version - UKDA-7215-stata [to wave 7]
-# AUTHORS:	Darwin del Castillo
-# LAST UPDATE: 11 May 2026
-#######################################################################################################
-
 import_data <- function(force = FALSE) {
   cache_path <- here::here("data", "cache", "raw_data.fst")
   if (!force && file.exists(cache_path)) {
