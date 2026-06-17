@@ -1,8 +1,9 @@
-# _targets.R — pipeline orchestration for the financial_distress UKHLS analysis.
+# _targets.R — pipeline orchestration for the FD analysis from the UKHLS.
 # Parallel backend: future + future.batchtools. The controller process running
 # tar_make_future() submits each worker target as its own SLURM job via the
-# slurm.tmpl template; locally it' single-threaded via future.callr. 
-# Not advised to run locally as ltmle step takes a long time (~9h total)
+# slurm.tmpl template. When deployed in a local machine, it runs the analysis via future.callr.
+# which calls separate r sessions in the background to solve future calls.
+# Not advised to run locally as LTMLE takes a long time (~9h to finish)
 
 pacman::p_load(targets,
                tarchetypes,
@@ -10,7 +11,7 @@ pacman::p_load(targets,
                future.batchtools,
                future.callr)
 
-# Detect SLURM at runtime or local machine. If in SLURM, the code will submit parallel jobs via slurm.tmpl
+# Detect SLURM at runtime, if not in cluster, run locally with future.callr (in a separate r process)
 on_slurm <- nzchar(Sys.getenv("SLURM_JOB_ID")) && nzchar(Sys.which("sbatch"))
 
 if (on_slurm) {
@@ -40,9 +41,21 @@ message("===========================")
 # notes: bit64 is needed for data.table to handle 64-bit integers (pipd)
 tar_option_set(
   packages = c(
-    "data.table", "bit64", "dplyr", "tidyr", "tibble", "purrr", "magrittr",
-    "rlang", "here",
-    "mice", "ltmle", "SuperLearner", "xgboost", "gam", "arm",
+    "data.table", 
+    "bit64", 
+    "dplyr", 
+    "tidyr", 
+    "tibble", 
+    "purrr", 
+    "magrittr",
+    "rlang", 
+    "here",
+    "mice", 
+    "ltmle", 
+    "SuperLearner", 
+    "xgboost", 
+    "gam", 
+    "arm",
     "gFormulaMI",
     "quarto"
   ),
@@ -50,9 +63,8 @@ tar_option_set(
   seed   = 20260522
 )
 
-# ---- Source extracted functions (R/) and project helpers (fnct/) -----------
-for (f in c(list.files("R",    "\\.R$", full.names = TRUE),
-            list.files("fnct", "\\.R$", full.names = TRUE))) source(f)
+# ---- Source extracted functions (R/) -----------
+for (f in c(list.files("R", "\\.R$", full.names = TRUE))) source(f)
 
 # ---- Configuration ---------------------------------------------------------
 ## mice and gformulaMI configs
@@ -62,7 +74,7 @@ gformula_M  <- 50
 seed_random <- 20260522
 
 ## ltmle configs
-sl_libs <- c("SL.mean", "SL.glm", "SL.glmnet", "SL.gam", "SL.nnet", "SL.svm", "SL.xgboost.ltmle")
+sl_libs <- c("SL.mean", "SL.glm", "SL.gam", "SL.nnet", "SL.xgboost.ltmle")
 
 regimes <- list(
   "0-0-0" = c(0, 0, 0),
@@ -149,7 +161,7 @@ Qform <- c(
                                econ_dist_bin_2"
 )
 
-# gform — one entry per A node.
+# gform — one entry per A node. 
 gform <- c(
     econ_dist_bin_0 = "econ_dist_bin_0 ~ sex_dv_base + 
                                          hiqual_dv_base + 
@@ -207,18 +219,28 @@ work_grid <- tidyr::expand_grid(
 # ---- DAG -------------------------------------------------------------------
 list(
   # Data prep
-  tar_target(pop_data,        import_data(force = FALSE) |> clean_data() |> preproc_data()),
-  tar_target(wide_data,       build_wide_data(pop_data)),
+  tar_target(pop_data,        
+    if(on_slurm) {
+      import_data(force = FALSE) |> clean_data() |> preproc_data()
+    } else {
+      import_data(force = TRUE) |> clean_data() |> preproc_data()
+    }
+  ),
+  tar_target(wide_data,       
+             build_wide_data(pop_data)),
 
   # Multiple imputation (no parallelised, but possible with futuremice)
-  tar_target(wide_mids,       run_mice(wide_data,
-                                       m     = mice_m,
-                                       maxit = mice_maxit,
-                                       seed  = seed_random)),
+  tar_target(wide_mids,       
+             run_mice(wide_data,
+                      m     = mice_m,
+                      maxit = mice_maxit,
+                      seed  = seed_random)),
 
   # LTMLE: prepare data, branch over (regime × imputation), pool.
-  tar_target(ltmle_data_list, prepare_ltmle_data(wide_mids)),
-  tar_target(work_grid_t,     work_grid),
+  tar_target(ltmle_data_list, 
+             prepare_ltmle_data(wide_mids)),
+  tar_target(work_grid_t,     
+             work_grid),
   tar_target(
     ltmle_one,
     fit_ltmle_one(
@@ -230,16 +252,20 @@ list(
       gform           = gform,
       sl_libs         = sl_libs
     ),
-    pattern   = map(work_grid_t),
-    iteration = "list"
+    pattern   = map(work_grid_t), # branch over the work_grid_t rows (regime × imputation)
+    iteration = "list" # resulting elements are wrapped in a list
   ),
-  tar_target(ltmle_results,   pool_ltmle(ltmle_one, work_grid_t$regime_label)),
+  tar_target(ltmle_results,   
+             pool_ltmle(ltmle_one, work_grid_t$regime_label)),
 
-  # Sensitivity analyses - depend only on wide_mids, thus it runs in parallel
-  tar_target(mi_results,      run_gformula(wide_mids,
-                                           wide_data_mi = wide_data,
-                                           M = gformula_M)),
+  # Sensitivity analyses - depend only on wide_mids, so it runs in parallel
+  tar_target(mi_results,      
+             run_gformula(wide_mids,
+                          wide_data_mi = wide_data,
+                          M = gformula_M)),
   # Final comparison + report
-  tar_target(comparison,      assemble_comparison(ltmle_results, mi_results)),
-  tarchetypes::tar_quarto(report,          "06_full_models.qmd")
+  tar_target(comparison,      
+             assemble_comparison(ltmle_results, mi_results)),
+  tarchetypes::tar_quarto(report,          
+                          "06_full_models.qmd")
 )
