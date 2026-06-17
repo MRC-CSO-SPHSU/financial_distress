@@ -72,7 +72,7 @@ mice_maxit  <- 15   # final: 15
 gformula_M  <- 50   # final: 50
 seed_random <- 20260522
 
-sl_libs <- c("SL.mean", "SL.glm", "SL.bayesglm", "SL.gam", "SL.xgboost.ltmle")
+sl_libs <- c("SL.mean", "SL.glm", "SL.glmnet", "SL.gam", "SL.nnet", "SL.svm", "SL.xgboost.ltmle")
 
 regimes <- list(
   "0-0-0" = c(0, 0, 0),
