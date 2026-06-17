@@ -1,14 +1,9 @@
-# _targets.R — pipeline orchestration for the financial_distress UKHLS analysis.
-#
-# Heavy compute (mice, LTMLE, gFormulaImpute) lives here as cached targets;
-# report/05_imputation.qmd is a thin report that reads them via tar_read().
-# Statistical code (formulas, regimes, SL library, Rubin pooling) is preserved
-# verbatim — extracted from the original chunks into R/ functions.
-#
+# _targets.R — pipeline orchestration for the FD analysis from the UKHLS.
 # Parallel backend: future + future.batchtools. The controller process running
 # tar_make_future() submits each worker target as its own SLURM job via the
-# slurm.tmpl template; locally it falls back to background R processes via
-# future.callr.
+# slurm.tmpl template. When deployed in a local machine, it runs the analysis via future.callr.
+# which calls separate r sessions in the background to solve future calls.
+# Not advised to run locally as LTMLE takes a long time (~9h to finish)
 
 pacman::p_load(targets,
                tarchetypes,
@@ -16,9 +11,7 @@ pacman::p_load(targets,
                future.batchtools,
                future.callr)
 
-# Detect SLURM at runtime: require both a SLURM job context AND a working
-# sbatch on PATH. The conjunction prevents the local fallback from triggering
-# on login nodes that happen to have sbatch but no SLURM_JOB_ID.
+# Detect SLURM at runtime, if not in cluster, run locally with future.callr (in a separate r process)
 on_slurm <- nzchar(Sys.getenv("SLURM_JOB_ID")) && nzchar(Sys.which("sbatch"))
 
 if (on_slurm) {
@@ -27,8 +20,8 @@ if (on_slurm) {
     template  = "slurm.tmpl",
     resources = list(
       ncpus    = 2,
-      memory   = 24 * 1024,  # MB per CPU  (= 48 GB per worker).
-      walltime = 6 * 60 * 60,    # seconds     (= 60 min wall; LTMLE branches can run long)
+      memory   = 24 * 1024,      # MB per CPU  (= 24 GB per worker).
+      walltime = 6 * 60 * 60,    # seconds     (= 6 h wall)
       account  = "none"
     )
   )
@@ -45,16 +38,24 @@ message("plan:            ", paste(class(future::plan()), collapse = "/"))
 message("===========================")
 
 # ---- Packages attached to every target's evaluation environment ------------
-# bit64 is required (not redundant with data.table): pidp is integer64, and
-# without bit64's S3 methods loaded in a worker, data.table's `col %in% vec`
-# join-optimisation coerces the integer64 RHS to double and bmerge errors
-# ("Incompatible join types: x.pidp integer64 vs i.pidp double"). The wide_data
-# worker hit this because build_wide_data() never references bit64:: itself.
+# notes: bit64 is needed for data.table to handle 64-bit integers (pipd)
 tar_option_set(
   packages = c(
-    "data.table", "bit64", "dplyr", "tidyr", "tibble", "purrr", "magrittr",
-    "rlang", "here",
-    "mice", "ltmle", "SuperLearner", "xgboost", "gam", "arm",
+    "data.table", 
+    "bit64", 
+    "dplyr", 
+    "tidyr", 
+    "tibble", 
+    "purrr", 
+    "magrittr",
+    "rlang", 
+    "here",
+    "mice", 
+    "ltmle", 
+    "SuperLearner", 
+    "xgboost", 
+    "gam", 
+    "arm",
     "gFormulaMI",
     "quarto"
   ),
@@ -62,17 +63,18 @@ tar_option_set(
   seed   = 20260522
 )
 
-# ---- Source extracted functions (R/) and project helpers (fnct/) -----------
-for (f in c(list.files("R",    "\\.R$", full.names = TRUE),
-            list.files("fnct", "\\.R$", full.names = TRUE))) source(f)
+# ---- Source extracted functions (R/) -----------
+for (f in c(list.files("R", "\\.R$", full.names = TRUE))) source(f)
 
 # ---- Configuration ---------------------------------------------------------
-mice_m      <- 35    # final: 35
-mice_maxit  <- 15   # final: 15
-gformula_M  <- 50   # final: 50
+## mice and gformulaMI configs
+mice_m      <- 35  
+mice_maxit  <- 15
+gformula_M  <- 50
 seed_random <- 20260522
 
-sl_libs <- c("SL.mean", "SL.glm", "SL.bayesglm", "SL.gam", "SL.xgboost.ltmle")
+## ltmle configs
+sl_libs <- c("SL.mean", "SL.glm", "SL.glmnet", "SL.gam", "SL.nnet", "SL.svm", "SL.xgboost.ltmle")
 
 regimes <- list(
   "0-0-0" = c(0, 0, 0),
@@ -85,8 +87,8 @@ regimes <- list(
   "1-1-1" = c(1, 1, 1)
 )
 
-# Qform — one entry per L/Y node, but ltmle collapses consecutive L/Y nodes into
-# blocks locked at the Y nodes, so only the 3 Y regressions are needed.
+# Qform — one entry per L/Y node. ltmle collapses consecutive L/Y nodes into
+# blocks locked at the Y nodes.
 Qform <- c(
     sf12mcs_dv_0 = "Q.kplus1 ~ sex_dv_base + 
                                hiqual_dv_base + 
@@ -208,7 +210,7 @@ gform <- c(
                                          sf12mcs_dv_0"
 )
 
-# (regime × imputation) grid for dynamic branching of the LTMLE step.
+# grid for dynamic branching of the LTMLE step.
 work_grid <- tidyr::expand_grid(
   regime_label = names(regimes),
   imp_idx      = seq_len(mice_m)
@@ -217,22 +219,28 @@ work_grid <- tidyr::expand_grid(
 # ---- DAG -------------------------------------------------------------------
 list(
   # Data prep
-  tar_target(pop_data,        import_data(force = FALSE) |> clean_data() |> preproc_data()),
-  tar_target(wide_data,       build_wide_data(pop_data)),
+  tar_target(pop_data,        
+    if(on_slurm) {
+      import_data(force = FALSE) |> clean_data() |> preproc_data()
+    } else {
+      import_data(force = TRUE) |> clean_data() |> preproc_data()
+    }
+  ),
+  tar_target(wide_data,       
+             build_wide_data(pop_data)),
 
-  # Multiple imputation (single-threaded; one target, cached)
-  tar_target(wide_mids,       run_mice(wide_data,
-                                       m     = mice_m,
-                                       maxit = mice_maxit,
-                                       seed  = seed_random)),
+  # Multiple imputation (no parallelised, but possible with futuremice)
+  tar_target(wide_mids,       
+             run_mice(wide_data,
+                      m     = mice_m,
+                      maxit = mice_maxit,
+                      seed  = seed_random)),
 
   # LTMLE: prepare data, branch over (regime × imputation), pool.
-  # Each branch is its own SLURM job under future.batchtools, so workers
-  # almost never co-locate — ltmle_data_list is materialised from .rds per
-  # worker. mori::share() was used under crew (see main branch) when SLURM
-  # could pack workers onto one node; not useful here.
-  tar_target(ltmle_data_list, prepare_ltmle_data(wide_mids)),
-  tar_target(work_grid_t,     work_grid),
+  tar_target(ltmle_data_list, 
+             prepare_ltmle_data(wide_mids)),
+  tar_target(work_grid_t,     
+             work_grid),
   tar_target(
     ltmle_one,
     fit_ltmle_one(
@@ -244,16 +252,20 @@ list(
       gform           = gform,
       sl_libs         = sl_libs
     ),
-    pattern   = map(work_grid_t),
-    iteration = "list"
+    pattern   = map(work_grid_t), # branch over the work_grid_t rows (regime × imputation)
+    iteration = "list" # resulting elements are wrapped in a list
   ),
-  tar_target(ltmle_results,   pool_ltmle(ltmle_one, work_grid_t$regime_label)),
+  tar_target(ltmle_results,   
+             pool_ltmle(ltmle_one, work_grid_t$regime_label)),
 
-  # Sensitivity analyses - depend only on wide_mids, thus it runs in parallel
-  tar_target(mi_results,      run_gformula(wide_mids,
-                                           wide_data_mi = wide_data,
-                                           M = gformula_M)),
+  # Sensitivity analyses - depend only on wide_mids, so it runs in parallel
+  tar_target(mi_results,      
+             run_gformula(wide_mids,
+                          wide_data_mi = wide_data,
+                          M = gformula_M)),
   # Final comparison + report
-  tar_target(comparison,      assemble_comparison(ltmle_results, mi_results)),
-  tarchetypes::tar_quarto(report,          "06_full_models.qmd")
+  tar_target(comparison,      
+             assemble_comparison(ltmle_results, mi_results)),
+  tarchetypes::tar_quarto(report,          
+                          "06_full_models.qmd")
 )
