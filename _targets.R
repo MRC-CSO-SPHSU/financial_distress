@@ -74,7 +74,7 @@ gformula_M  <- 50
 seed_random <- 20260522
 
 ## ltmle configs
-sl_libs <- c("SL.mean", "SL.glm", "SL.gam", "SL.nnet", "SL.xgboost.ltmle")
+sl_libs <- c("SL.mean", "SL.glm", "SL.gam", "SL.glmnet", "SL.nnet", "SL.xgboost.ltmle")
 
 regimes <- list(
   "0-0-0" = c(0, 0, 0),
