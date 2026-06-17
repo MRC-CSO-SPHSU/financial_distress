@@ -37,20 +37,20 @@ source(here::here("fnct", "helpers.R"))
 ```
 
 # Model specification: Two waves of data, time-invariant covariates + PCS
-In this model, we include 3 waves of data (waves 3 to 5) and adjust for time-invariant covariates and the physical component summary (PCS) score. The model is specified as follows: \
+In this model, we include 3 waves of data (waves 3 to 5) and adjust for time-invariant covariates and the physical component summary (PCS) score. Only two waves are represented in the DAG to avoid clutter. The model is specified as follows: \
 **Notation** \
-- $TI_{cov}$: Time-invariant covariates: \
-    - Sex (sex_dv) \
-    - Ethnicity (race_dv) \
-    - Highest educational qualification (hiqual_dv) \
-    - Region of residence (GOR) (gor_dv) \
-- $PCS_{t-1}$, $PCS_{t}$, $PCS_{t+1}$: Physical component summary score at time points t-1, t, and t+1 \
-- $IC_{t}$, $IC_{t+1}$, $IC_{t+2}$: Intermediate confounders (lagged) at time points t, t+1, and t+2, which include: \
-   - Number of dependents (0, 1, 2+) \
-   - Economic benefits receipt (yes/no) \
-   - Home ownership status (yes/no) \
-   - Marital status (partnered vs not partnered) \
-- **Time-varying confounder:** age
+- TI~cov~: Time-invariant covariates: \
+    - Sex (`sex_dv`) \
+    - Ethnicity (`race_dv`) \
+    - Highest educational qualification (`hiqual_dv`) \
+    - Region of residence (GOR) (`gor_dv`) \
+    - Age at baseline (`age_dv_base`) \
+- PCS~t-1~, PCS~t~, PCS~t+1~: Physical component summary score at time points *t-1*, *t*, and *t+1* \
+- IC~t~, IC~t+1~, IC~t+2~: Intermediate confounders (lagged) at time points *t*, *t+1*, and *t+2*, which include: \
+   - Number of dependents (`dnc`, 0, 1, 2+) \
+   - Economic benefits receipt (`econ_benefits`, yes/no) \
+   - Home ownership status (`home_owner`, yes/no) \
+   - Marital status (`mastat_dv`, partnered vs not partnered) \
 
 ```{r model1}
 #| echo: false
