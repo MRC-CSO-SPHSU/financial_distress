@@ -1,14 +1,8 @@
 # _targets.R — pipeline orchestration for the financial_distress UKHLS analysis.
-#
-# Heavy compute (mice, LTMLE, gFormulaImpute) lives here as cached targets;
-# report/05_imputation.qmd is a thin report that reads them via tar_read().
-# Statistical code (formulas, regimes, SL library, Rubin pooling) is preserved
-# verbatim — extracted from the original chunks into R/ functions.
-#
 # Parallel backend: future + future.batchtools. The controller process running
 # tar_make_future() submits each worker target as its own SLURM job via the
-# slurm.tmpl template; locally it falls back to background R processes via
-# future.callr.
+# slurm.tmpl template; locally it' single-threaded via future.callr. 
+# Not advised to run locally as ltmle step takes a long time (~9h total)
 
 pacman::p_load(targets,
                tarchetypes,
@@ -16,9 +10,7 @@ pacman::p_load(targets,
                future.batchtools,
                future.callr)
 
-# Detect SLURM at runtime: require both a SLURM job context AND a working
-# sbatch on PATH. The conjunction prevents the local fallback from triggering
-# on login nodes that happen to have sbatch but no SLURM_JOB_ID.
+# Detect SLURM at runtime or local machine. If in SLURM, the code will submit parallel jobs via slurm.tmpl
 on_slurm <- nzchar(Sys.getenv("SLURM_JOB_ID")) && nzchar(Sys.which("sbatch"))
 
 if (on_slurm) {
@@ -27,8 +19,8 @@ if (on_slurm) {
     template  = "slurm.tmpl",
     resources = list(
       ncpus    = 2,
-      memory   = 24 * 1024,  # MB per CPU  (= 48 GB per worker).
-      walltime = 6 * 60 * 60,    # seconds     (= 60 min wall; LTMLE branches can run long)
+      memory   = 24 * 1024,      # MB per CPU  (= 24 GB per worker).
+      walltime = 6 * 60 * 60,    # seconds     (= 6 h wall)
       account  = "none"
     )
   )
@@ -45,11 +37,7 @@ message("plan:            ", paste(class(future::plan()), collapse = "/"))
 message("===========================")
 
 # ---- Packages attached to every target's evaluation environment ------------
-# bit64 is required (not redundant with data.table): pidp is integer64, and
-# without bit64's S3 methods loaded in a worker, data.table's `col %in% vec`
-# join-optimisation coerces the integer64 RHS to double and bmerge errors
-# ("Incompatible join types: x.pidp integer64 vs i.pidp double"). The wide_data
-# worker hit this because build_wide_data() never references bit64:: itself.
+# notes: bit64 is needed for data.table to handle 64-bit integers (pipd)
 tar_option_set(
   packages = c(
     "data.table", "bit64", "dplyr", "tidyr", "tibble", "purrr", "magrittr",
@@ -67,11 +55,13 @@ for (f in c(list.files("R",    "\\.R$", full.names = TRUE),
             list.files("fnct", "\\.R$", full.names = TRUE))) source(f)
 
 # ---- Configuration ---------------------------------------------------------
-mice_m      <- 35    # final: 35
-mice_maxit  <- 15   # final: 15
-gformula_M  <- 50   # final: 50
+## mice and gformulaMI configs
+mice_m      <- 35  
+mice_maxit  <- 15
+gformula_M  <- 50
 seed_random <- 20260522
 
+## ltmle configs
 sl_libs <- c("SL.mean", "SL.glm", "SL.glmnet", "SL.gam", "SL.nnet", "SL.svm", "SL.xgboost.ltmle")
 
 regimes <- list(
@@ -85,8 +75,8 @@ regimes <- list(
   "1-1-1" = c(1, 1, 1)
 )
 
-# Qform — one entry per L/Y node, but ltmle collapses consecutive L/Y nodes into
-# blocks locked at the Y nodes, so only the 3 Y regressions are needed.
+# Qform — one entry per L/Y node. ltmle collapses consecutive L/Y nodes into
+# blocks locked at the Y nodes.
 Qform <- c(
     sf12mcs_dv_0 = "Q.kplus1 ~ sex_dv_base + 
                                hiqual_dv_base + 
@@ -159,7 +149,7 @@ Qform <- c(
                                econ_dist_bin_2"
 )
 
-# gform — one entry per A node. 
+# gform — one entry per A node.
 gform <- c(
     econ_dist_bin_0 = "econ_dist_bin_0 ~ sex_dv_base + 
                                          hiqual_dv_base + 
@@ -208,7 +198,7 @@ gform <- c(
                                          sf12mcs_dv_0"
 )
 
-# (regime × imputation) grid for dynamic branching of the LTMLE step.
+# grid for dynamic branching of the LTMLE step.
 work_grid <- tidyr::expand_grid(
   regime_label = names(regimes),
   imp_idx      = seq_len(mice_m)
@@ -220,17 +210,13 @@ list(
   tar_target(pop_data,        import_data(force = FALSE) |> clean_data() |> preproc_data()),
   tar_target(wide_data,       build_wide_data(pop_data)),
 
-  # Multiple imputation (single-threaded; one target, cached)
+  # Multiple imputation (no parallelised, but possible with futuremice)
   tar_target(wide_mids,       run_mice(wide_data,
                                        m     = mice_m,
                                        maxit = mice_maxit,
                                        seed  = seed_random)),
 
   # LTMLE: prepare data, branch over (regime × imputation), pool.
-  # Each branch is its own SLURM job under future.batchtools, so workers
-  # almost never co-locate — ltmle_data_list is materialised from .rds per
-  # worker. mori::share() was used under crew (see main branch) when SLURM
-  # could pack workers onto one node; not useful here.
   tar_target(ltmle_data_list, prepare_ltmle_data(wide_mids)),
   tar_target(work_grid_t,     work_grid),
   tar_target(
