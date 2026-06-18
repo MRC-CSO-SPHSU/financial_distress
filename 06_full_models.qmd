@@ -185,7 +185,7 @@ ltmle_results <- tar_read(ltmle_results, store = tar_store)
 ```
 
 
-# Sensitivity analyses: g-formula and IPTW
+# Sensitivity analyses: g-formula
 
 ## G-formula via multiple imputation
 
