@@ -8,8 +8,10 @@ format:
   html:
 #    css: styles.css
     html-math-method: mathjax
+    code-tools:
+      source: https://github.com/MRC-CSO-SPHSU/financial_distress
+      toggle: true
     code-fold: true
-    code-summary: "Show code"
   pdf:
     latex-engine: xelatex
     documentclass: report
