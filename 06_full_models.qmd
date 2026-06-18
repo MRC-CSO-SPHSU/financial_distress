@@ -32,8 +32,8 @@ pacman::p_load(gfoRmula,
 # Passing absolute path to every tar_read() below so resolution doesn't depend on the working directory.
 tar_store <- here::here("_targets")
 
-source(here::here("fnct", "import_cleaning.R"))
-source(here::here("fnct", "helpers.R"))
+source(here::here("R", "import_cleaning.R"))
+source(here::here("R", "helpers.R"))
 ```
 
 # Model specification: Two waves of data, time-invariant covariates + PCS
@@ -200,7 +200,6 @@ mi_results <- tar_read(mi_results, store = tar_store)
 ```{r table-results}
 #| output: true
 #| include: true
-iptw_results <- tar_read(iptw_results, store = tar_store)
 comparison   <- tar_read(comparison, store = tar_store)
 
 comparison |> knitr::kable(digits = 3)
