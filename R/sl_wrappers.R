@@ -13,3 +13,10 @@ SL.xgboost.ltmle <- function(Y, X, newX, family, ...) {
   if (!all(Y %in% c(0, 1))) family <- gaussian()
   SuperLearner::SL.xgboost(Y = Y, X = X, newX = newX, family = family, ...)
 }
+
+# Wrapper for glmnet to handle the same issues as SL.xgboost.ltmle.
+
+SL.glmnet.ltmle <- function(Y, X, newX, family, ...) {
+  if (!all(Y %in% c(0, 1))) family <- gaussian()
+  SuperLearner::SL.glmnet(Y = Y, X = X, newX = newX, family = family, ...)
+}
