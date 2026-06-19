@@ -40,18 +40,18 @@ test_that("build_wide_data produces expected output", {
   expect_true(all(expected_cols %in% names(wide_data)))
 })
 
-### does run_mice not crash and produce mids object with expected variables
+### does run_mice not crash and generate mids object with expected variables
 test_that("run_mice produces expected output", {
-  source(here::here("R/build_wide_data.R"))
-  source(here::here("R/run_mice.R"))
-  source(here::here("fnct", "import_cleaning.R"))
-  source(here::here("fnct", "helpers.R"))
+  source(here::here("R", "build_data.R"))
+  source(here::here("R", "run_mice.R"))
+  source(here::here("R", "import_cleaning.R"))
+  source(here::here("R", "helpers.R"))
 
-  pop_data  <- import_data(force = FALSE) |> clean_data() |> preproc_data()
-  wide_data <- build_wide_data(pop_data)
+  pop_data  <- import_data(force = TRUE) |> clean_data() |> preproc_data()
+  wide_data <- build_data(pop_data)
 
   # mini-mice call to check structure only
-  mids <- run_mice(wide_data, m = 2, maxit = 2, seed = 20260522)
+  mids <- run_mice(wide_data, m = 2, maxit = 15, seed = 42)
 
   # returns a proper mids object with the requested number of imputations
   expect_s3_class(mids, "mids")
@@ -60,10 +60,39 @@ test_that("run_mice produces expected output", {
   # dianosing mice imputation
   source(here::here("tests", "diagnose_mice.R"))
   diagnose_mice(mids, wide_data,
-                plot_dir = here::here("tests", "figs", "mice_diag"))
+                plot_dir = here::here("tests", "figs", "wide", "mice_diag"))
 
   # mice ran without logged events (warnings or errors during imputation)
   expect_null(mids$loggedEvents)
+})
+
+### does fit_tmle_one not crash
+test_that("fit_tmle_one runs without error", {
+  source(here::here("R", "build_data.R"))
+  source(here::here("R", "run_mice.R"))
+  source(here::here("R", "import_cleaning.R"))
+  source(here::here("R", "helpers.R"))
+  source(here::here("R", "sl_wrappers.R"))
+  source(here::here("R", "fit_tmle_one.R"))
+
+  pop_data  <- import_data(force = TRUE) |> clean_data() |> preproc_data()
+  wide_data <- build_data(pop_data)
+
+  # mini-mice call to check structure only
+  mids <- run_mice(wide_data, m = 2, maxit = 2, seed = 42)
+
+  # fit TMLE on the first imputation
+  tmle_fit <- fit_tmle_one(mids, 
+                           imp_idx = 1, 
+                          sl_libs = c("SL.xgboost.ltmle", 
+                                      "SL.glm", 
+                                      "SL.mean", 
+                                      "SL.gam", 
+                                      "SL.nnet",
+                                      "SL.glmnet.ltmle"))
+
+  # fit_tmle_one calls ltmle::ltmle(), which returns an "ltmle" object
+  expect_s3_class(tmle_fit, "ltmleEffectMeasures")
 })
 
 ### does make_predictor_matrix for g-formula MI produced a predictor matrix consistent with the DAG assumptions
