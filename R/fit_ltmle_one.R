@@ -1,12 +1,8 @@
 fit_ltmle_one <- function(regime_label, imp_idx, ltmle_data_list,
                           regimes, Qform, gform, sl_libs) {
-  # ltmle -> SuperLearner resolves SL.library names ("SL.xgboost.ltmle") against
-  # the global environment. On a fresh batchtools worker the custom learner from
-  # R/sl_wrappers.R isn't auto-shipped because sl_libs references it only as a
-  # string: the symbol reference on the RHS makes targets detect and serialize
-  # it with this target, and the assignment exposes it where SuperLearner's name
-  # lookup can find it.
+  # ltmle -> SuperLearner resolves SL.library names against the global environment.
   assign("SL.xgboost.ltmle", SL.xgboost.ltmle, envir = globalenv())
+  assign("SL.glmnet.ltmle", SL.glmnet.ltmle, envir = globalenv())
 
   ltmle::ltmle(
     data            = ltmle_data_list[[imp_idx]],
