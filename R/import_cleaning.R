@@ -541,13 +541,16 @@ preproc_data <- function(DT) {
   #--- Transforming econ_emp_bin into factor variable ----
   pop_data[, econ_emp_bin_fact := as.factor(econ_emp_bin)]
 
+  #--- Renaming sex_dv as a factor variable ----
+  pop_data[, sex_dv_fact := sex_dv]
+
   # ---- 5. Final column selection ----
   final_cols <- c("pidp", "wave", "response", "t0",
                   "sf12mcs_dv", "sf12pcs_dv", "log_income",
                   "econ_emp_bin", "econ_emp_bin_fact", "econ_dist", "econ_dist_bin", "econ_benefits",
                   "gor_dv", "mastat_dv", "home_owner", "dnc", "dnc_fact", "age_dv",
-                  "age_dv_base", "sex_dv_base", "gor_dv_base", "mastat_dv_base",
-                  "home_owner_base", "dnc_base", "hiqual_dv_base", "race_base",
+                  "age_dv_base", "sex_dv_fact", "sex_dv_base", "gor_dv_base", "mastat_dv_base",
+                  "home_owner_base", "dnc_base", "hiqual_dv", "hiqual_dv_base", "race_base",
                   "sf12mcs_dv_base", "sf12pcs_dv_base", "gor_dv_fact_base", "gor_dv_fact")
 
   pop_data[, ..final_cols]

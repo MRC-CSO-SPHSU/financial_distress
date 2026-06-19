@@ -13,3 +13,14 @@ SL.xgboost.ltmle <- function(Y, X, newX, family, ...) {
   if (!all(Y %in% c(0, 1))) family <- gaussian()
   SuperLearner::SL.xgboost(Y = Y, X = X, newX = newX, family = family, ...)
 }
+
+# Bare SL.glmnet fails the same way on the Q-model: ltmle fits it with
+# family = binomial for the logistic fluctuation, but glmnet's binomial path
+# (lognet) coerces the continuous [0,1] outcome to a factor and dies with
+# "one binomial class has 1 or 0 observations". Fall back to gaussian() whenever
+# the response isn't strictly binary; the genuine-binary g-model still gets
+# binomial. (glmnet handles the 0/1-coded factor A/L nodes as numeric directly.)
+SL.glmnet.ltmle <- function(Y, X, newX, family, ...) {
+  if (!all(Y %in% c(0, 1))) family <- gaussian()
+  SuperLearner::SL.glmnet(Y = Y, X = X, newX = newX, family = family, ...)
+}
