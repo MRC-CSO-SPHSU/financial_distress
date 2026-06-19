@@ -1,14 +1,14 @@
-# Post-mortem diagnostics for a mice run.
+# Diagnostics tests for a mice run.
 #
 # Combines the two information sources used when debugging imputation:
-#   1. mids$loggedEvents — what mice struggled with (collinear/constant
-#      predictors dropped, setup removals), broken down per variable.
+#   1. mids$loggedEvents — messages that might indicate collinearity or other problems, 
+#      broken down per variable.
 #   2. A per-variable missingness + method + event-count table.
 #   3. Optional observed-vs-imputed plots (density for continuous, category
 #      proportions for factors) plus convergence traces, saved as PNGs.
 #
 # Standalone: source this file and call diagnose_mice() on any mids object.
-#   diagnose_mice(mids, data_given_to_mice, plot_dir = "outputs/figs/mice_diag")
+#   diagnose_mice(mids, data_given_to_mice, plot_dir = "outputs/figs/mice_diag in dedicated folders according to dataset used")
 
 diagnose_mice <- function(mids, raw_data, plot_dir = NULL, plot_vars = NULL) {
   stopifnot(inherits(mids, "mids"), is.data.frame(raw_data))
@@ -30,12 +30,12 @@ diagnose_mice <- function(mids, raw_data, plot_dir = NULL, plot_vars = NULL) {
   }
 
   ## ---- Section 1: loggedEvents breakdown ---------------------------------
-  cat("\n==== mice diagnosis: logged events ====\n")
+  cat("\n---- mice diagnosis: logged events ----\n")
   if (le_unrecognized) {
     cat("loggedEvents present but in an unrecognized format; raw object:\n")
     print(le_raw)
   } else if (is.null(le)) {
-    cat("No logged events - mice ran clean.\n")
+    cat("No logged events \n")
   } else {
     cat(nrow(le), "logged events.\n")
     cat("\nEvents by variable (dep = model that logged the event,",
@@ -47,7 +47,6 @@ diagnose_mice <- function(mids, raw_data, plot_dir = NULL, plot_vars = NULL) {
 
   ## ---- Section 2: missingness + method table ------------------------------
   # 'out' entries can be comma-separated lists and, for factors, term labels
-  # like 'gor_lagged_0London'; columns are matched by name prefix (heuristic).
   out_tokens <- character(0L)
   if (!is.null(le)) {
     out_tokens <- trimws(unlist(strsplit(as.character(le$out), ",")))
@@ -75,7 +74,7 @@ diagnose_mice <- function(mids, raw_data, plot_dir = NULL, plot_vars = NULL) {
           -summary_table$n_logged_as_out,
           -summary_table$pct_missing), ]
 
-  cat("\n==== mice diagnosis: missingness and methods ====\n")
+  cat("\n---- mice diagnosis: missingness and methods ----\n")
   cat("(n_logged_as_dep = events in this variable's own imputation model;\n",
       " n_logged_as_out = times it was removed from other models - high\n",
       " values flag collinear variables)\n", sep = "")
@@ -93,8 +92,7 @@ diagnose_mice <- function(mids, raw_data, plot_dir = NULL, plot_vars = NULL) {
     }
 
     # Wraps every plot: open its own png device, close exactly that device on
-    # exit, and downgrade any plotting error to a warning so one bad variable
-    # cannot abort the diagnosis or corrupt later plots.
+    # exit
     save_png <- function(file, make_plot) {
       tryCatch({
         grDevices::png(file.path(plot_dir, file),
