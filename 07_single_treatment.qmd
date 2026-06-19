@@ -1,0 +1,168 @@
+---
+title: "Single point-treatment and outcome analysis"
+subtitle: "Including only wave 3"
+author: "Darwin Del Castillo"
+format: 
+  html:
+    number-sections: true
+    
+editor: source
+---
+
+# Data
+Data comes from the UK Household Longitudinal Study (UKHLS), also known as Understanding Society. We use data from wave 3, which was collected from 2011 to 2012.
+
+```{r setup}
+#| output: false
+here::i_am("07_single_treatment.qmd")
+
+pacman::p_load(DiagrammeR,
+               tidyverse,
+               mice,
+               targets,
+               knitr)
+
+# The targets store lives at the project root. Pass its absolute path to every
+# tar_read() below so resolution doesn't depend on the working directory.
+tar_store <- here::here("_targets")
+
+source(here::here("R", "import_cleaning.R"))
+source(here::here("R", "helpers.R"))
+```
+
+# Model specification: Two waves of data, time-invariant covariates + PCS
+In this model, we include 8 waves of data (waves 3 to 10) and adjust for time-invariant covariates and time-varying confounders. The model is specified as follows: \
+**Notation** \
+- TI~cov~: Time-invariant covariates: \
+    - Sex (`sex_dv`) \
+    - Ethnicity (`race_dv`) \
+    - Highest educational qualification (`hiqual_dv`) \
+    - Region of residence (GOR) (`gor_dv`) \
+    - Age at baseline (`age_dv_base`) \
+- PCS~t-1~, PCS~t~, PCS~t+1~: Physical component summary score at time points *t-1*, *t*, and *t+1* \
+- IC~t~, IC~t+1~, IC~t+2~: Intermediate confounders (lagged) at time points *t*, *t+1*, and *t+2*, which include: \
+   - Number of dependents (`dnc`, 0, 1, 2+) \
+   - Economic benefits receipt (`econ_benefits`, yes/no) \
+   - Home ownership status (`home_owner`, yes/no) \
+   - Marital status (`mastat_dv`, partnered vs not partnered) \
+
+```{r model1}
+#| echo: false
+#| include: true
+#| fig-cap: "Direct Acyclic Graph showing causal assumptions for the present analysis"
+#| fig-width: 8
+#| fig-height: 10
+#| fig-align: center
+
+DiagrammeR::grViz("
+                  digraph{
+                  graph[rankdir=LR]
+
+                  node[fontname=Arial]
+                  TI [label=<<B><I>TI<SUB>cov</SUB></I></B>>]
+                  C1 [label=<<B><I>CF<SUB>t-1</SUB></I></B>>]
+                  C2 [label=<<B><I>CF<SUB>t</SUB></I></B>>]
+                  I1 [label=<<B><I>IC<SUB>t</SUB></I></B>>]
+                  I2 [label=<<B><I>IC<SUB>t+1</SUB></I></B>>]
+                  J1 [label=<<B><I>Emp<SUB>t</SUB></I></B>>]
+                  J2 [label=<<B><I>Emp<SUB>t+1</SUB></I></B>>]
+                  E1 [label=<<B><I>FD<SUB>t</SUB></I></B>>, 
+                      fontcolor=deepskyblue4, 
+                      color=deepskyblue4]
+                  Y0 [label=<<B><I>MCS<SUB>b</SUB></I></B>>]
+                  Y1 [label=<<B><I>MCS<SUB>t</SUB></I></B>>, 
+                      fontcolor=darkorange2, 
+                      color=darkorange2]
+
+                  Y0 -> Y1
+                  C1 -> C2
+                  J1 -> J2
+                  I1 -> I2
+
+                  TI -> E1, C1, C2, Y0, Y1, I1, I2, J1, J2
+
+                  C1 -> E1, Y1, J1
+                  C2 -> J2
+                  
+                  I1 -> E1, Y1, J2
+
+                  J1 -> E1, Y1, I1
+                  J2 -> I2
+
+                  E1 -> C2
+                  E1 -> Y1 
+                  
+                  Y0 -> C1, J1, I1, E1
+                  Y1 -> C2, J2, I2
+
+                  {rank=min; E1}
+                  {rank=same; TI}
+                  {rank=same; C1, C2}
+                  {rank=same; E1}
+                  {rank=same; I1, I2}
+                  {rank=same; J1, J2}
+                  {rank=max; Y0, Y1}
+            }
+                  "
+)
+```
+
+# Data preparation
+The data is prepared by creating a long format dataset with one row per individual per time point. The report retrieves cached information from `_targets.R` at the repo root.
+
+```{r data_prep}
+#| output: false
+wide_data <- tar_read(wide_data, store = tar_store)
+seed_random <- 42
+```
+
+# Multiple imputation (wide format)
+```{r mice-gformula}
+#| output: false
+wide_mids <- tar_read(wide_mids, store = tar_store)
+```
+
+# Fit TMLE
+We fit a single-point TMLE: the exposure is financial distress (`econ_dist_bin_0`) and the outcome is the SF-12 mental component summary (`sf12mcs_dv_0`). The table reports, pooled across imputations with Rubin's rules and in MCS points, the two counterfactual marginal means — mean SF-12 MCS if every person-wave were, versus were not, in financial distress — and their contrast (the ATE).
+
+```{r fit-tmle}
+tmle_results <- tar_read(tmle_results, store = tar_store)
+knitr::kable(
+  tmle_results,
+  digits  = 3,
+  caption = "Pooled single-point TMLE estimates: counterfactual marginal means (Distress / No distress) and their contrast (ATE), in SF-12 MCS points."
+)
+```
+
+## Marginal means
+Populational mean across the two counterfactuals.
+
+```{r plot-tmle-means}
+#| output: true
+#| include: true
+#| eval: true
+#| fig-cap: "Single-point TMLE: pooled counterfactual marginal means of SF-12 MCS under financial distress vs no distress (95% CI)."
+#| fig-width: 6
+#| fig-height: 2.5
+
+means_plot <- tmle_results |>
+  filter(type == "mean") |>
+  mutate(estimand = factor(estimand, levels = c("No distress", "Distress"))) |>
+  ggplot(aes(x = effect, y = estimand, xmin = ll, xmax = ul, colour = estimand)) +
+  theme_bw() +
+  geom_point(size = 2.5) +
+  geom_errorbar(orientation = "y", width = 0.2) +
+  scale_colour_manual(values = c("No distress" = "grey40", "Distress" = "deepskyblue4"),
+                      guide = "none") +
+  labs(x = "Counterfactual mean SF-12 MCS (95% CI)", y = NULL) +
+  theme(panel.grid.minor = element_blank())
+
+print(means_plot)
+
+ggsave(
+  filename = here::here("figs", "tmle_means.png"),
+  plot     = means_plot,
+  width = 6, height = 2.5, dpi = 300
+)
+```
+
