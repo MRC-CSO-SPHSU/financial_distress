@@ -30,21 +30,27 @@ source(here::here("R", "import_cleaning.R"))
 source(here::here("R", "helpers.R"))
 ```
 
-# Model specification: Two waves of data, time-invariant covariates + PCS
-In this model, we include 8 waves of data (waves 3 to 10) and adjust for time-invariant covariates and time-varying confounders. The model is specified as follows: \
-**Notation** \
-- TI~cov~: Time-invariant covariates: \
-    - Sex (`sex_dv`) \
-    - Ethnicity (`race_dv`) \
-    - Highest educational qualification (`hiqual_dv`) \
-    - Region of residence (GOR) (`gor_dv`) \
-    - Age at baseline (`age_dv_base`) \
-- PCS~t-1~, PCS~t~, PCS~t+1~: Physical component summary score at time points *t-1*, *t*, and *t+1* \
-- IC~t~, IC~t+1~, IC~t+2~: Intermediate confounders (lagged) at time points *t*, *t+1*, and *t+2*, which include: \
-   - Number of dependents (`dnc`, 0, 1, 2+) \
-   - Economic benefits receipt (`econ_benefits`, yes/no) \
-   - Home ownership status (`home_owner`, yes/no) \
-   - Marital status (`mastat_dv`, partnered vs not partnered) \
+# Model specification: One wave of data, time-invariant covariates + lagged confounders + baseline outcome + other confounders
+In this model, we include 1 wave of data (wave 3) and adjust for time-invariant covariates and lagged confounders. The model is specified as follows:
+
+**Notation**
+
+- TI~cov~: Time-invariant covariates:
+    - Sex (`sex_dv`)
+    - Ethnicity (`race_dv`)
+    - Highest educational qualification (`hiqual_dv`)
+- C~l~: lagged confounders from the previous round
+    - Number of dependents (`dnc`, 0, 1, 2+)
+    - Economic benefits receipt (`econ_benefits`, yes/no)
+    - Home ownership status (`home_owner`, yes/no)
+    - Marital status (`mastat_dv`, partnered vs not partnered)
+- C~f~: Other confounders (not lagged)
+    - Region of residence (GOR) (`gor_dv`)
+    - Age (`age_dv`)
+- Job: Employment status (`econ_emp_bin`, employed vs not employed)
+- Inc: Income (`log_income`)
+- Y~0~: SF-12 mental component summary (MCS) at baseline (`sf12mcs_dv_base`)
+
 
 ```{r model1}
 #| echo: false
@@ -60,13 +66,10 @@ DiagrammeR::grViz("
 
                   node[fontname=Arial]
                   TI [label=<<B><I>TI<SUB>cov</SUB></I></B>>]
-                  C1 [label=<<B><I>CF<SUB>t-1</SUB></I></B>>]
-                  C2 [label=<<B><I>CF<SUB>t</SUB></I></B>>]
-                  I1 [label=<<B><I>IC<SUB>t</SUB></I></B>>]
-                  I2 [label=<<B><I>IC<SUB>t+1</SUB></I></B>>]
-                  J1 [label=<<B><I>Emp<SUB>t</SUB></I></B>>]
-                  J2 [label=<<B><I>Emp<SUB>t+1</SUB></I></B>>]
-                  E1 [label=<<B><I>FD<SUB>t</SUB></I></B>>, 
+                  Cl [label=<<B><I>Con<SUB>l</SUB></I></B>>]
+                  J [label=<<B><I>Job</I></B>>]
+                  I [label=<<B><I>Inc</I></B>>]
+                  E [label=<<B><I>FD<SUB>t</SUB></I></B>>, 
                       fontcolor=deepskyblue4, 
                       color=deepskyblue4]
                   Y0 [label=<<B><I>MCS<SUB>b</SUB></I></B>>]
@@ -74,34 +77,18 @@ DiagrammeR::grViz("
                       fontcolor=darkorange2, 
                       color=darkorange2]
 
-                  Y0 -> Y1
-                  C1 -> C2
-                  J1 -> J2
-                  I1 -> I2
+                  E -> Y1
+                  TI -> E, Y1, Cl, Y0
+                  Cl -> E, Y1, J
+                  J -> I, E
+                  I -> E, Y1
+                  Y0 -> Y1, Cl, E
 
-                  TI -> E1, C1, C2, Y0, Y1, I1, I2, J1, J2
-
-                  C1 -> E1, Y1, J1
-                  C2 -> J2
-                  
-                  I1 -> E1, Y1, J2
-
-                  J1 -> E1, Y1, I1
-                  J2 -> I2
-
-                  E1 -> C2
-                  E1 -> Y1 
-                  
-                  Y0 -> C1, J1, I1, E1
-                  Y1 -> C2, J2, I2
-
-                  {rank=min; E1}
-                  {rank=same; TI}
-                  {rank=same; C1, C2}
-                  {rank=same; E1}
-                  {rank=same; I1, I2}
-                  {rank=same; J1, J2}
-                  {rank=max; Y0, Y1}
+                  {rank=min; E, TI}
+                  {rank=same; Y0}
+                  {rank=same; Cl}
+                  {rank=same; J, I}
+                  {rank=max; Y1}
             }
                   "
 )
@@ -134,9 +121,36 @@ knitr::kable(
 )
 ```
 
+# Sensitivity analysis: g-formula with multiple imputation
+We fit a g-formula model with multiple imputation, using the same model specification as the TMLE above. The following tables present the comparison between marginal means and ATE of the two counterfactuals estimated with TMLE and g-formula MI.
+
+## Marginal means
+```{r fit-sensitivity}
+comparison <- tar_read(comparison, store = tar_store)
+
+marginals <- comparison$marginal
+
+knitr::kable(
+  marginals,
+  digits  = 3,
+  caption = "Comparison of pooled single-point TMLE and g-formula MI estimates: counterfactual marginal means (Distress / No distress) and their contrast (ATE), in SF-12 MCS points."
+)
+```
+
+## Average treatment effect (ATE)
+```{r fit-sensitivity-ate}
+ate <- comparison$ate
+
+knitr::kable(
+  ate,
+  digits  = 3,
+  caption = "Comparison of pooled single-point TMLE and g-formula MI estimates: average treatment effect (ATE) of financial distress on SF-12 MCS, in points."
+)
+```
+
+# Graphs
 ## Marginal means
 Populational mean across the two counterfactuals.
-
 ```{r plot-tmle-means}
 #| output: true
 #| include: true
@@ -145,24 +159,84 @@ Populational mean across the two counterfactuals.
 #| fig-width: 6
 #| fig-height: 2.5
 
-means_plot <- tmle_results |>
-  filter(type == "mean") |>
-  mutate(estimand = factor(estimand, levels = c("No distress", "Distress"))) |>
-  ggplot(aes(x = effect, y = estimand, xmin = ll, xmax = ul, colour = estimand)) +
+results_comparison_marginal <- marginals |>
+  pivot_longer(
+    -intervention,
+    names_to = c("method", ".value"),
+    names_pattern = "(.*)_(.*)"
+  ) |>
+  mutate(
+    method = factor(method,
+                    levels = c("tmle", "mi"),
+                    labels = c("TMLE", "G-Formula MI")),
+    intervention = factor(intervention,
+                          levels = c("No distress", "Distress"),
+  )) |>
+  ggplot(aes(x = effect, y = intervention,
+             colour = intervention,
+             xmin = ll, xmax = ul)) +
   theme_bw() +
   geom_point(size = 2.5) +
-  geom_errorbar(orientation = "y", width = 0.2) +
-  scale_colour_manual(values = c("No distress" = "grey40", "Distress" = "deepskyblue4"),
-                      guide = "none") +
-  labs(x = "Counterfactual mean SF-12 MCS (95% CI)", y = NULL) +
+  geom_errorbar(orientation = "y", width = 0.3) +
+  scale_colour_brewer(palette = "Set1",
+                      name = "Intervention",
+                      guide = "legend") +
+  scale_x_continuous(breaks = seq(39, 51, by = 2)) +
+  labs(x = "Mean MCS score (95% CI)", y = NULL) +
+  facet_wrap(~method, ncol = 1) +
   theme(panel.grid.minor = element_blank())
 
-print(means_plot)
+print(results_comparison_marginal)
 
 ggsave(
-  filename = here::here("figs", "tmle_means.png"),
-  plot     = means_plot,
+  filename = here::here("figs", "comparison_means.png"),
+  plot     = results_comparison_marginal,
   width = 6, height = 2.5, dpi = 300
 )
 ```
 
+## Average treatment effect (ATE)
+```{r plot-tmle-ate}
+#| output: true
+#| include: true
+#| eval: true
+#| fig-cap: "Single-point TMLE: pooled average treatment effect of financial distress on SF-12 MCS (95% CI)."
+#| fig-width: 6
+#| fig-height: 2.5
+
+results_comparison_ate <- ate |>
+  pivot_longer(
+    -estimand,
+    names_to = c("method", ".value"),
+    names_pattern = "(.*)_(.*)"
+  ) |>
+  mutate(
+    method = factor(method,
+                    levels = c("tmle", "mi"),
+                    labels = c("TMLE", "G-Formula MI")),
+    estimand = factor(estimand,
+                      levels = c("Distress"),
+  )) |>
+  ggplot(aes(x = effect, y = estimand,
+             colour = estimand,
+             xmin = ll, xmax = ul)) +
+  theme_bw() +
+  geom_point(size = 2.5) +
+  geom_errorbar(orientation = "y", width = 0.3) +
+  scale_colour_brewer(palette = "Set1",
+                      name = "Estimand",
+                      guide = "legend") +
+  scale_x_continuous(breaks = seq(-5, -3, by = 1), limits = c(-5, -3)) +
+  labs(x = "Causal mean difference (95% CI)
+  (Reference: No distress)", y = NULL) +
+  facet_wrap(~method, ncol = 1) +
+  theme(panel.grid.minor = element_blank())
+
+print(results_comparison_ate)
+
+ggsave(
+  filename = here::here("figs", "comparison_ate.png"),
+  plot     = results_comparison_ate,
+  width = 6, height = 2.5, dpi = 300
+)
+```
