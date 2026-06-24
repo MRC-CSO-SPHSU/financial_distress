@@ -9,8 +9,7 @@ build_data <- function(pop_data) {
         by = pidp
     ][wave %in% 3]
 
-  # Drop pidps with no usable MCS: baseline missing, OR both intermediate waves (t0=2 and t0=3) missing.
-  # Operates per-pidp on long data
+  # Drop pidps with no usable MCS: baseline missing
   bad_pidps <- int_data_wide[
     , .(base_na = any(is.na(sf12mcs_dv_base))),
     by = pidp
@@ -40,6 +39,8 @@ build_data <- function(pop_data) {
       log_income,
       waves = c(0)
     )
+  
+  wide_data <- set_exposure(wide_data, exposure = "econ_dist_bin")
   
   wide_data
 }
