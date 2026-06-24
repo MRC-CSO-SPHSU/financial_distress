@@ -67,13 +67,16 @@ for (f in c(list.files("R", "\\.R$", full.names = TRUE))) source(f)
 
 # ---- Configuration ---------------------------------------------------------
 ## mice configs
-mice_m      <- 5
-mice_maxit  <- 10
+mice_m      <- 35
+mice_maxit  <- 15
 seed_random <- 42
+## gFormulaMI configs
+gform_M <- 50
 
-## SuperLearner library for the TMLE Q- and g-models. SL.xgboost.ltmle is the
-## custom wrapper in R/sl_wrappers.R (factor coding / bounded-outcome handling).
-sl_libs <- c("SL.mean", "SL.glm", "SL.glmnet.ltmle", "SL.gam", "SL.nnet", "SL.xgboost.ltmle")
+
+## SuperLearner library for the TMLE Q- and g-models. SL.xgboost.tmle is the
+## custom wrapper in R/sl_wrappers.R (bounded-outcome handling).
+sl_libs <- c("SL.mean", "SL.glm", "SL.glmnet.tmle", "SL.gam", "SL.nnet", "SL.xgboost.tmle")
 
 # ---- DAG -------------------------------------------------------------------
 list(
@@ -111,6 +114,30 @@ list(
   tar_target(tmle_results,
              pool_tmle(tmle_one)),
 
+  # Sensitivity analysis: g-formula via gFormulaMI (multiple imputation of counterfactual outcomes).
+  # Only estimates marginal means
+  tar_target(mi_results,
+             run_gformula(
+               wide_mids     = wide_mids,
+               wide_data_mi  = wide_data,
+               M             = gform_M,
+               estimand      = "factor(regime) + 0"
+             )),
+
+  # Estimating ATE via g-formula MI (multiple imputation of counterfactual outcomes).
+  tar_target(mi_ate_results,
+             run_gformula(
+               wide_mids     = wide_mids,
+               wide_data_mi  = wide_data,
+               M             = gform_M,
+               estimand      = "factor(regime)"
+              )),
+  # Comparison of TMLE and g-formula MI estimates.
+  tar_target(comparison,
+             assemble_comparison(tmle_results, 
+                                 mi_results,
+                                 mi_ate_results
+            )),
   # Report
   tarchetypes::tar_quarto(report,
                           "07_single_treatment.qmd")
