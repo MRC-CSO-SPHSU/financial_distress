@@ -39,13 +39,23 @@ run_mice <- function(wide_data, m = 5, maxit = 10, seed = 20260522) {
 #  pred_mat[, "pidp"] <- 0
 #  pred_mat["pidp", ] <- 0
 
-  mice::mice(
-    data            = wide_data,
-#    defaultMethod   = c("pmm", "logreg", "polr", "polyreg"),
-    m               = m,
-    maxit           = maxit,
-    seed            = seed,
-    method          = method_list,
-    predictorMatrix = pred_mat
-  )
+  mids <-  mice::mice(
+           data            = wide_data,
+        #  defaultMethod   = c("pmm", "logreg", "polr", "polyreg"),
+           m               = m,
+           maxit           = maxit,
+           seed            = seed,
+           method          = method_list,
+           predictorMatrix = pred_mat
+          )
+
+  le <- mids$loggedEvents
+  if (is.null(le) || nrow(le) == 0) {
+    message("run_mice: no logged events.")
+  } else {
+    message("run_mice: ", nrow(le), " logged event(s) during imputation:")
+    message(paste(utils::capture.output(print(le)), collapse = "\n"))
+  }
+
+  mids
 }
