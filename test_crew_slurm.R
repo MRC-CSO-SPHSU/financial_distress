@@ -1,31 +1,33 @@
 ## Minimal reproducer: can crew.cluster launch ONE worker and return ONE result?
-## Run from inside an srun shell on a compute node, after `conda activate quarto`.
-##   Rscript test_crew_slurm.R
-##
-## This version is explicit at every step (manual launch, mode="one" wait,
-## explicit collect, inline sacct probes) so failures surface where they happen
-## instead of being hidden by autoscale / wait-on-empty-queue surprises.
+## If succesful, the worker will print explicit information about the worker (manual launch, mode, etc.)
 
 suppressPackageStartupMessages(library(crew.cluster))
 
-message("=== ENVIRONMENT CHECK ===")
+message("--- ENVIRONMENT CHECK ---")
 message("hostname:        ", Sys.info()[["nodename"]])
 message("SLURM_JOB_ID:    '", Sys.getenv("SLURM_JOB_ID"), "'")
+message("http_proxy:      '", Sys.getenv("http_proxy"), "'")
+message("https_proxy:    '", Sys.getenv("https_proxy"), "'")
 message("Sys.which sbatch: '", Sys.which("sbatch"), "'")
 message("crew.cluster ver: ", as.character(packageVersion("crew.cluster")))
 message("crew ver:        ", as.character(packageVersion("crew")))
 message("mirai ver:       ", as.character(packageVersion("mirai")))
-message("==========================")
+message("-------------------------")
 
 ctl <- crew_controller_slurm(
   name            = "probe",
   workers         = 1,
+  tls = crew::crew_tls(mode = "automatic"),
   seconds_idle    = 60,
   options_cluster = crew_options_slurm(
+    verbose = TRUE,
     script_lines = c(
+      "#SBATCH --account=none", # always add this option
       "module purge",
       "module load apps/miniforge",
       'source "$(conda info --base)/etc/profile.d/conda.sh"',
+      "unset http_proxy",
+      "unset https_proxy",
       "conda activate quarto"
     ),
     cpus_per_task = 1,
@@ -38,11 +40,11 @@ ctl <- crew_controller_slurm(
 message("--- starting controller ---")
 ctl$start()
 
-message("--- explicit launch of 1 worker (bypassing autoscale) ---")
+message("--- explicit launch of 1 worker ---")
 ctl$launch(n = 1L)
 Sys.sleep(2)
 message("immediately after launch, sacct shows:")
-system("sacct -u $USER --starttime now-2min --format=JobID%15,JobName%15,State,Submit -n | tail -10")
+system("sacct -u $USER --starttime now-1minutes  --format=JobID%15,JobName%15,NodeList,State,Submit,Start -n | tail -2")
 
 message("--- pushing simple string task ---")
 ctl$push(
@@ -81,9 +83,9 @@ if (!is.null(res)) {
 }
 
 message("--- final SLURM state for any probe worker jobs ---")
-system("sacct -u $USER --starttime now-10min --format=JobID%15,JobName%15,State,ExitCode,Elapsed,Reason%30 -n")
+system("sacct -u $USER --starttime now-5minutes --format=JobID%15,JobName%15,NodeList,State,ExitCode,Elapsed,Reason%30 -n | tail -2")
 
-message("--- worker log files crew created ---")
+message("--- worker log files crew created, if they exist ---")
 system("ls -la probe-*.out probe-*.err 2>/dev/null")
 
 message("--- shutting down ---")
