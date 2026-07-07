@@ -3,7 +3,7 @@ run_mice <- function(wide_data, m = 5, maxit = 10, seed = 20260522) {
 
   method_list <- mice::make.method(wide_data)
   method_list[c("sex_dv_base", 
-                "hiqual_dv_base", 
+                "hiqual_dv_fact_base", 
                 "race_base", 
                 "gor_dv_fact_0",
                 "sf12mcs_dv_base",

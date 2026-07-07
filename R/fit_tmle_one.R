@@ -6,7 +6,7 @@ fit_tmle_one <- function(wide_mids, imp_idx, sl_libs) {
   assign("SL.glmnet.tmle",  SL.glmnet.tmle,  envir = globalenv())
 
   # Confounders (W), all measured pre-exposure (wave 3 / baseline).
-  W <- c("sex_dv_base", "hiqual_dv_base", "race_base", "sf12mcs_dv_base",
+  W <- c("sex_dv_base", "hiqual_dv_fact_base", "race_base", "sf12mcs_dv_base",
          "age_dv_0", "gor_dv_fact_0", "pcs_lagged_0", "dnc_lagged_0",
          "home_owner_lagged_0", "econ_benefits_lagged_0", "mastat_lagged_0",
          "econ_emp_bin_fact_0", "log_income_0")

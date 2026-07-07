@@ -506,13 +506,20 @@ preproc_data <- function(DT) {
   setorder(exp_data, pidp, wave)
 
   # impute slow-changing/time-invariant variables for synthetic (response=0) rows
-  exp_data[, sex_dv    := sex_dv[!is.na(sex_dv)][1L], by = pidp]          # time-invariant: broadcast
-  exp_data[, race      := race[!is.na(race)][1L],      by = pidp]          # time-invariant: broadcast
-  exp_data[, hiqual_dv := nafill(hiqual_dv, type = "locf"), by = pidp][, `:=`(hiqual_dv = as.factor(hiqual_dv))]     # education: forward only, as factor
+  exp_data[, sex_dv    := sex_dv[!is.na(sex_dv)][1L], by = pidp]          # time-invariant sex
+  exp_data[, race      := race[!is.na(race)][1L],      by = pidp]          # time-invariant race
+  exp_data[, hiqual_dv := nafill(hiqual_dv, type = "locf"), by = pidp]     # education: forward only
+  # collapse UKHLS hiqual_dv codes: 1-2 (degree/other higher degree) = High,
+  # 3-5 (A-level/GCSE/other qualification) = Medium, 9 (no qualification) = Low
+  exp_data[, hiqual_dv_fact := factor(fcase(
+    hiqual_dv %in% 1:2, "High",
+    hiqual_dv %in% 3:5, "Medium",
+    hiqual_dv == 9L,    "Low"
+  ), levels = c("High", "Medium", "Low"))]
 
   # ---- 3. Wave-1 baseline variable creation ----
   base_cols <- c("pidp", "age_dv", "sex_dv", "gor_dv", "gor_dv_fact", "mastat_dv",
-                 "home_owner", "dnc", "hiqual_dv", "race",
+                 "home_owner", "dnc", "hiqual_dv_fact", "race",
                  "sf12mcs_dv", "sf12pcs_dv")
 
   base_data <- exp_data[wave == 1L, ..base_cols]
@@ -550,7 +557,7 @@ preproc_data <- function(DT) {
                   "econ_emp_bin", "econ_emp_bin_fact", "econ_dist", "econ_dist_bin", "econ_benefits",
                   "gor_dv", "mastat_dv", "home_owner", "dnc", "dnc_fact", "age_dv",
                   "age_dv_base", "sex_dv_fact", "sex_dv_base", "gor_dv_base", "mastat_dv_base",
-                  "home_owner_base", "dnc_base", "hiqual_dv", "hiqual_dv_base", "race_base",
+                  "home_owner_base", "dnc_base", "hiqual_dv_fact", "hiqual_dv_fact_base", "race_base",
                   "sf12mcs_dv_base", "sf12pcs_dv_base", "gor_dv_fact_base", "gor_dv_fact")
 
   pop_data[, ..final_cols]

@@ -23,7 +23,7 @@ build_data <- function(pop_data) {
       pidp,
       t0,
       base_cols = c(sex_dv_base,
-                    hiqual_dv_base,
+                    hiqual_dv_fact_base,
                     race_base,
                     sf12mcs_dv_base),
       outcome = sf12mcs_dv,
