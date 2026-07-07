@@ -142,3 +142,7 @@ list(
   tarchetypes::tar_quarto(report,
                           "07_single_treatment.qmd")
 )
+
+# @ pending: extend TMLE to estimate multilevel treatment effects
+# @ pending: apply MAIHDA with multilevel TMLE extension
+# @ pending: drop idea of applying MAIHDA to g-formula MI, since the package is not optimised for multilevel modelling
