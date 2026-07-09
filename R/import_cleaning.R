@@ -264,8 +264,16 @@ clean_data <- function(DT) {
   )]
 
   ## Phase 3a — knock back to 0: parents retired (age_pension == 1 or les_c4 == 4)
-  raw_data[pension_mother == 1L | pension_father == 1L |
-           les_c4mother == 4L  | les_c4father == 4L,    adultchildflag := 0L]
+  raw_data[pension_mother == 1  & is.na(pension_father),  adultchildflag := 0L]
+  raw_data[is.na(pension_mother) & pension_father == 1,   adultchildflag := 0L]
+  raw_data[pension_mother == 1  & pension_father == 1,    adultchildflag := 0L]
+
+  raw_data[les_c4mother == 4L & is.na(les_c4father),     adultchildflag := 0L]
+  raw_data[is.na(les_c4mother) & les_c4father == 4L,     adultchildflag := 0L]
+  raw_data[les_c4mother == 4L & les_c4father == 4L,      adultchildflag := 0L]
+
+  raw_data[les_c4mother == 4L & pension_father == 1,     adultchildflag := 0L]
+  raw_data[les_c4father == 4L & pension_mother == 1,     adultchildflag := 0L]
 
   ## Phase 3b — knock back to 0: insufficient age gap (< 15 years)
   raw_data[(age_father - age_probe) <= 15 & is.na(age_mother),              adultchildflag := 0L]
