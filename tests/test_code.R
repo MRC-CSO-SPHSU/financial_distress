@@ -184,10 +184,7 @@ test_that("how many strata will be for MAIHDA", {
   source(here::here("R", "helpers.R"))
 
   pop_data  <- import_data(force = TRUE) |> clean_data() |> preproc_data()
-  wide_data <- build_data(pop_data)
-
-  # setting exposure
-  wide_data <- set_exposure(wide_data, exposure = "econ_dist_bin")
+  wide_data <- build_data(pop_data, pre_wave = 2, target_wave = 3, outcome = "MCS", clust.id = TRUE)
 
   # mini-mice call to check structure only
   mids <- run_mice(wide_data, m = 5, maxit = 2, seed = 42)
