@@ -36,9 +36,8 @@ run_tmle_cluster <- function(strata_data, imp_idx, sl_libs.Q, sl_libs.g,
   if (length(missing_adj)) {
     stop("run_tmle_cluster: missing columns for outcome '", outcome, "': ",
          paste(missing_adj, collapse = ", "),
-         "\n  (econ_dist_bin_lagged is only passed to make_wide() on the PCS branch ",
-         "of build_data(); add it to the MCS branch so both outcomes share an ",
-         "adjustment set.)")
+         "\n  (the cluster id comes from strata_creation(); the adjustment columns ",
+         "come from the make_wide() call for this outcome in build_data().)")
   }
 
   outcome_col <- if (outcome == "MCS") "sf12mcs_dv_0" else "sf12pcs_dv_0"
