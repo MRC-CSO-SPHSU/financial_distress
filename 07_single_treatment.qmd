@@ -240,3 +240,78 @@ ggsave(
   width = 6, height = 2.5, dpi = 300
 )
 ```
+
+# Secondary analysis: I-MAIHDA via TMLE
+
+The intersectional strata (sex × education × ethnicity) are treated as clusters and the estimand becomes the **cluster-level PATE**, $E[Y_c(1) - Y_c(0)]$ where $Y_{c,j}$ is the mean SF-12 MCS in stratum $j$. Each stratum contributes equally regardless of how many people are in it, whereas the primary TMLE above weights each *person* equally. The two therefore only coincide when stratum size is uninformative about the effect — the divergence is the quantity of interest.
+
+Inference treats the stratum, not the person, as the independent unit, so the effective sample size for the interval is the number of strata.
+
+## Table
+```{r fit-maihda}
+#| output: true
+maihda_results <- tar_read(maihda_results, store = tar_store)
+
+knitr::kable(
+  maihda_results,
+  digits  = 3,
+  caption = "Hierarchical (cluster) TMLE, pooled across imputations with Rubin's rules, in SF-12 MCS points. The estimator returns an influence curve for the contrast only, so the counterfactual means are reported as point estimates without intervals. `df` is the Barnard-Rubin degrees of freedom with the number of strata as the complete-data sample size."
+)
+```
+
+## Graph
+```{r plot-maihda}
+#| output: true
+#| include: true
+#| eval: true
+#| fig-cap: "Financial distress and SF-12 MCS, estimated two ways: the primary single-point TMLE (each person weighted equally) and the hierarchical cluster TMLE with intersectional strata as clusters (each stratum weighted equally). Intervals are 95%; the cluster-TMLE interval uses a t cutoff on the number of strata, so it is wider by construction."
+#| fig-width: 7
+#| fig-height: 4
+
+maihda_plot_data <- bind_rows(
+  tmle_results |>
+    select(estimand, type, effect, ll, ul) |>
+    mutate(method = "TMLE (person-weighted)"),
+  maihda_results |>
+    select(estimand, type, effect, ll, ul) |>
+    mutate(method = "Cluster TMLE (stratum-weighted)")
+) |>
+  mutate(
+    method   = factor(method, levels = c("TMLE (person-weighted)",
+                                         "Cluster TMLE (stratum-weighted)")),
+    estimand = factor(estimand, levels = c("No distress", "Distress", "ATE")),
+    # Means (~50 MCS points) and the contrast (~-2) cannot share an x axis.
+    panel    = factor(ifelse(type == "ate", "Causal contrast (ATE)",
+                             "Counterfactual marginal means"),
+                      levels = c("Counterfactual marginal means",
+                                 "Causal contrast (ATE)"))
+  )
+
+results_maihda <- maihda_plot_data |>
+  ggplot(aes(x = effect, y = estimand, colour = method,
+             xmin = ll, xmax = ul)) +
+  theme_bw() +
+  geom_vline(data = data.frame(panel = factor("Causal contrast (ATE)",
+                                              levels = levels(maihda_plot_data$panel))),
+             aes(xintercept = 0), linetype = "dashed", colour = "grey50") +
+  geom_point(size = 2.5, position = position_dodge(width = 0.5)) +
+  geom_errorbar(orientation = "y", width = 0.3, na.rm = TRUE,
+                position = position_dodge(width = 0.5)) +
+  scale_colour_brewer(palette = "Set1", name = "Estimator", guide = "legend") +
+  # "free" (not "free_x"): the means and the contrast need separate x ranges, and free y
+  # also drops the estimand levels that don't belong to each panel.
+  facet_wrap(~panel, ncol = 1, scales = "free") +
+  labs(x = "SF-12 MCS points (95% CI)", y = NULL) +
+  theme(panel.grid.minor = element_blank(),
+        legend.position  = "bottom")
+
+print(results_maihda)
+
+ggsave(
+  filename = here::here("figs", "maihda_comparison.png"),
+  plot     = results_maihda,
+  width = 7, height = 4, dpi = 300
+)
+```
+
+

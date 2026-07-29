@@ -4,11 +4,11 @@
 # slurm.tmpl template. When deployed in a local machine, it runs the analysis via future.callr.
 # which calls separate r sessions in the background to solve future calls.
 
-pacman::p_load(targets,
-               tarchetypes,
-               future,
-               future.batchtools,
-               future.callr)
+library(targets)
+library(tarchetypes)
+library(future)
+library(future.batchtools)
+library(future.callr)
 
 # Detect SLURM at runtime, if not in cluster, run locally with future.callr (in a separate r process)
 on_slurm <- nzchar(Sys.getenv("SLURM_JOB_ID")) && nzchar(Sys.which("sbatch"))
@@ -67,11 +67,13 @@ for (f in c(list.files("R", "\\.R$", full.names = TRUE))) source(f)
 
 # ---- Configuration ---------------------------------------------------------
 ## mice configs
-mice_m      <- 35
+mice_m      <- 50
 mice_maxit  <- 15
 seed_random <- 42
 ## gFormulaMI configs
 gform_M <- 50
+## Outcome scale for the whole pipeline: "MCS" or "PCS"
+outcome_scale <- "MCS"
 
 
 ## SuperLearner library for the TMLE Q- and g-models. SL.xgboost.tmle is the
@@ -89,7 +91,7 @@ list(
     }
   ),
   tar_target(wide_data,
-             build_data(pop_data)),
+             build_data(pop_data, outcome = outcome_scale)),
 
   # Wide-format multiple imputation (one mids object, backs the single-point TMLE).
   tar_target(wide_mids,
@@ -106,7 +108,8 @@ list(
     fit_tmle_one(
       wide_mids = wide_mids,
       imp_idx   = tmle_imp_idx,
-      sl_libs   = sl_libs
+      sl_libs   = sl_libs,
+      outcome   = outcome_scale
     ),
     pattern   = map(tmle_imp_idx), # one branch per imputation
     iteration = "list"             # collect the per-imputation tmle fits in a list
@@ -138,11 +141,27 @@ list(
                                  mi_results,
                                  mi_ate_results
             )),
+
+# ---------- MAIHDA: multilevel analysis of individual heterogeneity and discriminatory accuracy ---------------
+  # Step 1: Creating strata ids after imputation
+  tar_target(strata_ids,
+             strata_creation(wide_mids)),
+  # Step 2: MAIHDA via hierarchical TMLE — stratum-level PATE, one fit per imputation.
+  tar_target(
+    maihda_one,
+    run_tmle_cluster(
+      strata_data = strata_ids$fits,
+      imp_idx     = tmle_imp_idx,
+      sl_libs.Q   = sl_libs,
+      sl_libs.g   = sl_libs,
+      outcome     = outcome_scale
+    ),
+    pattern   = map(tmle_imp_idx),
+    iteration = "list"
+  ),
+  tar_target(maihda_results,
+             pool_tmle_cluster(maihda_one)),
   # Report
   tarchetypes::tar_quarto(report,
                           "07_single_treatment.qmd")
 )
-
-# @ pending: extend TMLE to estimate multilevel treatment effects
-# @ pending: apply MAIHDA with multilevel TMLE extension
-# @ pending: drop idea of applying MAIHDA to g-formula MI, since the package is not optimised for multilevel modelling

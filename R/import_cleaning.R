@@ -174,15 +174,6 @@ clean_data <- function(DT) {
   # create age_probe variable for composite variables (e.g., employment status, partnership status, etc.)
   raw_data[, age_probe := fifelse(age_dv < 0, NA_integer_, as.integer(age_dv))]
 
-  ## impute missing ages: (age - wave) is a person-constant, so nafill on that
-  ## then reconstruct age = constant + wave. handles non-consecutive waves correctly.
-  setorder(raw_data, pidp, wave)
-  raw_data[, age_adj := age_probe - wave]
-  raw_data[, age_adj := nafill(age_adj, type = "locf"), by = pidp]  # forward fill
-  raw_data[, age_adj := nafill(age_adj, type = "nocb"), by = pidp]  # backward fill
-  raw_data[is.na(age_probe), age_probe := as.integer(age_adj + wave)]
-  raw_data[, age_adj := NULL]
-
   # create gender probe variable and recoding sex (2 -> 0 for female)
   raw_data[, gender_probe := fifelse(sex_dv == 2, 0, sex_dv)]
 
@@ -190,13 +181,15 @@ clean_data <- function(DT) {
   raw_data[, has_partner := fifelse(partnerid > 0 & !is.na(partnerid), 1L, 0L)]
 
   # dependent children dummy variable (1 if has dependent children, 0 if not)
-  raw_data[, depChild := fifelse(age_dv >= 0 & age_dv < age_max_dependent & (pns1pid > 0 | pns2pid > 0) & depchl_dv == 1, 1L, 0L)]
+  raw_data[, depChild := fifelse(age_probe >= 0 & age_probe < age_max_dependent & (pns1pid > 0 | pns2pid > 0) & depchl_dv == 1, 1L, 0L)]
   raw_data[, dnc := sum(depChild, na.rm = TRUE), by = .(wave, idhh)]
   ## drop temporary depChild
   raw_data[, depChild := NULL]
 
   # flag for being at or above state pension age (1 if at/above SPA, 0 if below)
   raw_data[, age_pension := fcase(
+  # missing age/sex/interview year -> NA, not the default 0L ("below SPA")
+  is.na(age_probe) | is.na(gender_probe) | intdaty_dv < 0, NA_integer_,
   # Men
   gender_probe == 1 & age_probe >= 66 & intdaty_dv >= 2020,             1L,
   gender_probe == 1 & age_probe >= 65 & intdaty_dv >= 2009 & intdaty_dv < 2020, 1L,
@@ -403,10 +396,17 @@ clean_data <- function(DT) {
     default = NA_character_
   )]
 
-  # binary employment: 0 = employed, 1 = not employed (at risk of work only)
+  # binary employment: 0 = employed, 1 = not employed
   raw_data[, econ_emp_bin := fcase(
-    econ_emp == "Employed or self-employed",      0L,
-    econ_emp == "Not employed (at risk of work)", 1L,
+    econ_emp == "Employed or self-employed", 0L,
+    !is.na(econ_emp),                        1L,
+    default = NA_integer_
+  )]
+
+  #sensitivity exposure: binary, labour-force. Students and retired are not at risk of work.
+  raw_data[, econ_emp_bin_narrow := fcase(
+    econ_emp == "Employed or self-employed",                             0L,
+    econ_emp %in% c("Not employed (at risk of work)", "Long-term sick"), 1L,
     default = NA_integer_
   )]
 
@@ -469,9 +469,6 @@ clean_data <- function(DT) {
 
   # recoding hiqual_dv missings to NA
   raw_data[hiqual_dv < 0, hiqual_dv := NA_integer_]
-  # filling missing hiqual_dv with last observation carried forward within person, then backward fill to handle leading NAs
-  setorder(raw_data, pidp, wave)
-  raw_data[, hiqual_dv := nafill(hiqual_dv, type = "locf"), by = pidp]  # forward fill
 
   # drop intermediate variables used for cleaning
   raw_data[, c("age_probe", "gender_probe", "has_partner", "age_pension",
@@ -486,7 +483,7 @@ clean_data <- function(DT) {
               "intdaty_dv", "intdatm_dv", "intdatd_dv", "sclfsato", "finnow", 
               "fimnpen_dv", "fimnlabgrs_dv", "scsf1", "inc_pp", "inc_tu", "inc_ma", 
               "inc_fm", "inc_oth", "benefits_uc", "benefits_lb", "fihhmnsben_dv", "ethn_dv",
-              "econ_ltsick", "econ_student", "econ_retire", "econ_emp") := NULL]
+              "econ_ltsick", "econ_student", "econ_retire") := NULL]
   return(raw_data)
 }
 
@@ -502,7 +499,7 @@ preproc_data <- function(DT) {
                     "sf12mcs_dv", "sf12pcs_dv", "log_income",
                     "econ_emp_bin", "econ_dist", "econ_dist_bin", "econ_benefits", "gor_dv_fact",
                     "gor_dv", "mastat_dv", "home_owner", "dnc", "age_dv",
-                    "race", "sex_dv", "hiqual_dv")
+                    "race", "sex_dv", "hiqual_dv", "econ_emp", "econ_emp_bin_narrow")
 
   DT <- DT[, ..cols_to_keep]
   DT[, response := 1L]
@@ -516,7 +513,7 @@ preproc_data <- function(DT) {
   # impute slow-changing/time-invariant variables for synthetic (response=0) rows
   exp_data[, sex_dv    := sex_dv[!is.na(sex_dv)][1L], by = pidp]          # time-invariant sex
   exp_data[, race      := race[!is.na(race)][1L],      by = pidp]          # time-invariant race
-  exp_data[, hiqual_dv := nafill(hiqual_dv, type = "locf"), by = pidp]     # education: forward only
+  exp_data[, hiqual_dv := hiqual_dv[!is.na(hiqual_dv)][1L], by = pidp]     # time-invariant highest qualification
   # collapse UKHLS hiqual_dv codes: 1-2 (degree/other higher degree) = High,
   # 3-5 (A-level/GCSE/other qualification) = Medium, 9 (no qualification) = Low
   exp_data[, hiqual_dv_fact := factor(fcase(

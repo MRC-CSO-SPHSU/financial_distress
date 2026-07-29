@@ -94,6 +94,16 @@ make_counterfactual_matrix <- function(return_vals) {
   nodes <- c(colnames(return_vals), "regime")
   dimnames(p_mat) <- list(nodes, nodes)
 
+  # time-invariant confounders are lower-triangular among themselves: each is
+  # predicted by every baseline variable preceding it in the visit (column) order.
+  # Without this they carry all-zero predictor rows and gFormulaMI draws each one
+  # from its own marginal in the synthetic block, destroying their joint
+  # distribution. The chain rule over the column order reproduces that joint.
+  base_ordered <- intersect(nodes, baseline_vars)
+  for (i in seq_along(base_ordered)[-1]) {
+    p_mat[base_ordered[i], base_ordered[seq_len(i - 1L)]] <- 1
+  }
+
   # baseline outcome is predicted by all time-invariant confounders
   p_mat[outcome_baseline, setdiff(c(baseline_vars, outcome_baseline), outcome_baseline)] <- 1
 
@@ -119,7 +129,26 @@ make_counterfactual_matrix <- function(return_vals) {
     }
   }
 
-  # outcome is predicted by all time-invariant confounders, all time-lagged confounders, baseline outcome, 
+  # time-varying covariates that are neither the exposure, the outcome, nor a lag
+  # (age_dv_0, gor_dv_fact_0, econ_emp_bin_fact_0, log_income_0). With a single
+  # timepoint the loops below never fire, so wire them up explicitly — otherwise
+  # they get all-zero predictor rows and drop out of both the exposure and the
+  # outcome model, which the point-treatment TMLE (fit_tmle_one) adjusts for.
+  covar_vars <- setdiff(intermediate_vars, c(exposure, outcome_var, outcome_baseline))
+
+  if (time_points <= 1 && length(covar_vars) > 0) {
+    # gFormulaMI runs mice with maxit = 1 and the default (column-order) visit
+    # sequence, so a predictor is only useful if it precedes its target.
+    for (v in covar_vars) {
+      earlier <- nodes[seq_len(match(v, nodes) - 1L)]
+      p_mat[v, intersect(c(baseline_vars, outcome_baseline, time_lagged), earlier)] <- 1
+    }
+    # they confound the exposure–outcome relationship
+    p_mat[exposure, covar_vars]    <- 1
+    p_mat[outcome_var, covar_vars] <- 1
+  }
+
+  # outcome is predicted by all time-invariant confounders, all time-lagged confounders, baseline outcome,
   # and exposure (single-time) or exposure_t (time-varying)
   p_mat[outcome_var, c(baseline_vars, time_lagged, outcome_baseline)] <- 1
 
