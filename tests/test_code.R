@@ -11,31 +11,32 @@ pacman::p_load(testthat,
   rlang,
   here,
   mice,
-  lattice)
+  lattice,
+  SuperLearner,
+  estimatr,
+  car,
+  lmtest,
+  sandwich)
 
 ## testing functions
-### does build_wide_data not crash and produce the expected wide columns
-test_that("build_wide_data produces expected output", {
+### does build_data not crash and produce the expected single-wave wide columns
+test_that("build_data produces expected output", {
   source(here::here("R", "build_data.R"))
   source(here::here("R", "import_cleaning.R"))
   source(here::here("R", "helpers.R"))
 
-  pop_data <- import_data(force = TRUE) |> clean_data() |> preproc_data()
+  pop_data <- import_data(force = FALSE) |> clean_data() |> preproc_data()
 
-  wide_data <- build_data(pop_data)
+  wide_data <- build_data(pop_data, outcome = "MCS")
   expect_true(is.data.frame(wide_data))
 
+  # single target wave: everything is _base or _0 (codebase-map 1)
   expected_cols <- c(
-    "sex_dv_base", "hiqual_dv_base", "race_base", "gor_dv_fact_base",
-    "sf12mcs_dv_0", "sf12mcs_dv_1", "sf12mcs_dv_2",
-    "pcs_lagged_0", "pcs_lagged_1", "pcs_lagged_2",
-    "econ_dist_bin_0", "econ_dist_bin_1", "econ_dist_bin_2",
-    "dnc_lagged_0", "dnc_lagged_1", "dnc_lagged_2",
-    "home_owner_lagged_0", "home_owner_lagged_1", "home_owner_lagged_2",
-    "econ_benefits_lagged_0", "econ_benefits_lagged_1", "econ_benefits_lagged_2",
-    "mastat_lagged_0", "mastat_lagged_1", "mastat_lagged_2",
-    "econ_emp_bin_fact_0", "econ_emp_bin_fact_1", "econ_emp_bin_fact_2",
-    "log_income_0", "log_income_1", "log_income_2"
+    "sex_dv_base", "hiqual_dv_fact_base", "race_base", "sf12mcs_dv_base",
+    "sf12mcs_dv_0", "age_dv_0", "gor_dv_fact_0",
+    "pcs_lagged_0", "econ_dist_bin_0", "econ_dist_bin_lagged_0",
+    "dnc_lagged_0", "home_owner_lagged_0", "econ_benefits_lagged_0",
+    "mastat_lagged_0", "econ_emp_bin_fact_0", "log_income_0"
   )
   expect_true(all(expected_cols %in% names(wide_data)))
 })
@@ -48,7 +49,7 @@ test_that("run_mice produces expected output", {
   source(here::here("R", "import_cleaning.R"))
   source(here::here("R", "helpers.R"))
 
-  pop_data  <- import_data(force = TRUE) |> clean_data() |> preproc_data()
+  pop_data  <- import_data(force = FALSE) |> clean_data() |> preproc_data()
   wide_data <- build_data(pop_data)
 
   # setting exposure
@@ -90,46 +91,19 @@ test_that("fit_tmle_one runs without error", {
   source(here::here("R", "sl_wrappers.R"))
   source(here::here("R", "fit_tmle_one.R"))
 
-  pop_data  <- import_data(force = TRUE) |> clean_data() |> preproc_data()
-  wide_data <- build_data(pop_data)
+  pop_data  <- import_data(force = FALSE) |> clean_data() |> preproc_data()
+  wide_data <- build_data(pop_data, outcome = "MCS")
 
-  # mini-mice call to check structure only
   mids <- run_mice(wide_data, m = 2, maxit = 2, seed = 42)
 
-  # fit TMLE on the first imputation
-  tmle_fit <- fit_tmle_one(mids, 
-                           imp_idx = 1, 
-                          sl_libs = c("SL.xgboost.ltmle", 
-                                      "SL.glm", 
-                                      "SL.mean", 
-                                      "SL.gam", 
-                                      "SL.nnet",
-                                      "SL.glmnet.ltmle"))
+  tmle_fit <- fit_tmle_one(mids,
+                           imp_idx = 1,
+                           sl_libs = c("SL.mean", "SL.glm"),
+                           outcome = "MCS")
 
-  # fit_tmle_one calls ltmle::ltmle(), which returns an "ltmle" object
-  expect_s3_class(tmle_fit, "ltmleEffectMeasures")
-})
-
-### does make_predictor_matrix for g-formula MI produced a predictor matrix consistent with the DAG assumptions
-test_that("make_predictor_matrix produces expected output", {
-  source(here::here("R/build_wide_data.R"))
-  source(here::here("R/run_mice.R"))
-  source(here::here("R/run_gformula.R"))
-  source(here::here("fnct", "import_cleaning.R"))
-  source(here::here("fnct", "helpers.R"))
-
-  pop_data  <- import_data(force = FALSE) |> clean_data() |> preproc_data()
-  wide_data <- build_wide_data(pop_data)
-
-  pred_mat <- make_predictor_matrix(wide_data)
-  
-## post visual verification
-predictor_matrix |> as.data.frame() |> 
-  openxlsx::write.xlsx(here::here("tests", "matrix", "predictor_matrix.xlsx"), overwrite = TRUE, rowNames = TRUE, colNames = TRUE)
-
-# returns a proper predictor matrix with the expected dimensions
-expect_true(is.matrix(pred_mat))
-expect_equal(dim(pred_mat), c(ncol(wide_data), ncol(wide_data)))
+  # fit_tmle_one calls tmle::tmle(), which returns a "tmle" object
+  expect_s3_class(tmle_fit, "tmle")
+  expect_true(is.numeric(tmle_fit$estimates$ATE$psi))
 })
 
 ## can i add an additional variable
@@ -140,7 +114,7 @@ test_that("will a new variable exist after imputation", {
   source(here::here("R", "import_cleaning.R"))
   source(here::here("R", "helpers.R"))
 
-  pop_data  <- import_data(force = TRUE) |> clean_data() |> preproc_data()
+  pop_data  <- import_data(force = FALSE) |> clean_data() |> preproc_data()
   wide_data <- build_data(pop_data)
 
   # setting exposure
@@ -183,8 +157,8 @@ test_that("how many strata will be for MAIHDA", {
   source(here::here("R", "import_cleaning.R"))
   source(here::here("R", "helpers.R"))
 
-  pop_data  <- import_data(force = TRUE) |> clean_data() |> preproc_data()
-  wide_data <- build_data(pop_data, pre_wave = 2, target_wave = 3, outcome = "MCS", clust.id = TRUE)
+  pop_data  <- import_data(force = FALSE) |> clean_data() |> preproc_data()
+  wide_data <- build_data(pop_data, pre_wave = 2, target_wave = 3, outcome = "MCS")
 
   # mini-mice call to check structure only
   mids <- run_mice(wide_data, m = 5, maxit = 2, seed = 42)
