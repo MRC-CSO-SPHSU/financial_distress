@@ -342,3 +342,101 @@ test_that("SuperLearner $Z is out-of-fold, input-row-ordered and nameless", {
   expect_length(sl_oof_predictions(fit, n, "test"), n)
   expect_error(sl_oof_predictions(fit, n - 1, "test"), "rows")
 })
+
+### toy generators for the DR-learner tests (used by the estimate_cate,
+### pool_cate and congenial run_mice tests; defined once, here only)
+# Synthetic wide frame shaped like the real one: all 14 columns of
+# confounders("MCS"), the exposure and the outcome. Balanced 12-cell design,
+# every A x S cell populated (deterministic 40% exposed per cell).
+# tau_by_cell: length-12, the treatment effect (conventional Y(1) - Y(0)
+# scale) per stratum, indexed in strata_id order (ids sorted ascending).
+make_toy_wide_df <- function(n_per_cell = 100, tau_by_cell = rep(-2, 12), seed = 1) {
+  set.seed(seed)
+  grid <- expand.grid(
+    sex_dv_base         = factor(c("Female", "Male")),
+    race_base           = factor(c("Non.white", "White")),
+    hiqual_dv_fact_base = factor(c("High", "Low", "Medium")),
+    KEEP.OUT.ATTRS = FALSE
+  )
+  df <- grid[rep(seq_len(12), each = n_per_cell), ]
+  n  <- nrow(df)
+
+  df$sf12mcs_dv_base        <- rnorm(n, 50, 8)
+  df$age_dv_0               <- rnorm(n, 45, 10)
+  df$gor_dv_fact_0          <- factor(sample(c("London", "North.East", "Wales"), n, TRUE))
+  df$econ_dist_bin_lagged_0 <- factor(rbinom(n, 1, 0.2))
+  df$pcs_lagged_0           <- rnorm(n, 50, 8)
+  df$dnc_lagged_0           <- factor(sample(c("Zero", "One", "Two.plus"), n, TRUE))
+  df$home_owner_lagged_0    <- factor(rbinom(n, 1, 0.6))
+  df$econ_benefits_lagged_0 <- factor(rbinom(n, 1, 0.3))
+  df$mastat_lagged_0        <- factor(sample(c("Partnered", "Not.partnered"), n, TRUE))
+  df$econ_emp_bin_fact_0    <- factor(sample(c("Employed", "Not.employed"), n, TRUE))
+  df$log_income_0           <- rnorm(n, 10, 1)
+
+  # exposure: exactly 40% treated inside every cell (all 24 A x S cells filled)
+  n_tr <- round(0.4 * n_per_cell)
+  a <- unlist(lapply(seq_len(12), function(j) {
+    sample(rep(c(1L, 0L), c(n_tr, n_per_cell - n_tr)))
+  }))
+  df$econ_dist_bin_0 <- factor(a)
+
+  # map each row's stratum to its rank in strata_id (= sorted 100s+10r+h) order
+  sid      <- 100 * as.numeric(df$sex_dv_base) +
+               10 * as.numeric(df$race_base) +
+                    as.numeric(df$hiqual_dv_fact_base)
+  sid_rank <- match(sid, sort(unique(sid)))
+
+  df$sf12mcs_dv_0 <- 0.5 * df$sf12mcs_dv_base +
+    2 * (df$sex_dv_base == "Female") +
+    tau_by_cell[sid_rank] * a +
+    rnorm(n, 0, 1)
+
+  rownames(df) <- NULL
+  df
+}
+
+# Punch a few holes and impute so estimate_cate sees a genuine mids object.
+make_toy_wide_mids <- function(df, m = 2, seed = 7) {
+  set.seed(seed)
+  df_na <- df
+  df_na$sf12mcs_dv_0[sample(nrow(df), round(0.05 * nrow(df)))] <- NA
+  df_na$log_income_0[sample(nrow(df), round(0.05 * nrow(df)))] <- NA
+  mice::mice(df_na, m = m, maxit = 1, seed = seed, printFlag = FALSE)
+}
+
+### design 7 "factor handling": estimate_cate runs on a small mids whose W
+### contains factors
+test_that("estimate_cate runs on a small mids with factor confounders", {
+  source(here::here("R", "confounders.R"))
+  source(here::here("R", "strata_creation.R"))
+  source(here::here("R", "sl_wrappers.R"))
+  source(here::here("R", "meta_learner.R"))
+
+  df   <- make_toy_wide_df(n_per_cell = 60, seed = 11)
+  mids <- make_toy_wide_mids(df, m = 2, seed = 11)
+
+  res <- estimate_cate(mids, imp_idx = 1, sl_libs = c("SL.mean", "SL.glm"),
+                       outcome = "MCS")
+
+  expect_named(res, c("gate", "blp", "ate", "wald"))
+  expect_equal(nrow(res$gate), 12L)
+  expect_setequal(
+    names(res$gate),
+    c("imp", "strata_id", "strata_label", "n_j", "n_exposed", "pct_exposed",
+      "min_g", "median_g", "share_g_at_bound", "estimate", "se")
+  )
+  expect_false(anyNA(res$gate$estimate))
+  expect_true(all(res$gate$se > 0))
+  expect_equal(sum(res$gate$n_j), nrow(df))
+  expect_true(all(res$gate$min_g >= 0.025 & res$gate$min_g <= 0.975))
+
+  expect_equal(nrow(res$blp), 2L)
+  expect_equal(res$blp$term, c("beta1_ate", "beta2_hte"))
+
+  expect_equal(res$wald$df1, 11)
+
+  # exact identity: mean(psi) is the n_j-weighted mean of the cell GATEs
+  expect_equal(res$ate$estimate,
+               sum(res$gate$estimate * res$gate$n_j) / sum(res$gate$n_j),
+               tolerance = 1e-10)
+})
