@@ -32,6 +32,8 @@ fit_tmle_one <- function(wide_mids, imp_idx, sl_libs, outcome) {
     Q.SL.library = sl_libs,
     g.SL.library = sl_libs,
     cvQinit      = TRUE,
+    V.Q          = 10,
+    V.g          = 10, 
     family       = "gaussian", # for continuous outcomes
     fluctuation = "logistic" # to bound the outcome to [0,1] for the logistic fluctuation step
   )
