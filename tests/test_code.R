@@ -556,3 +556,40 @@ test_that("estimate_cate recovers the ATE under a confounded, W x A heterogeneou
   # ~+1.0 (measured). 0.5 sits well inside that gap.
   expect_lt(abs(res$ate$estimate - truth), 0.5)
 })
+
+### design 7 "recovery": inject known cell effects; pooled GATE_j recovers them
+test_that("pool_cate recovers injected cell-specific effects", {
+  source(here::here("R", "confounders.R"))
+  source(here::here("R", "strata_creation.R"))
+  source(here::here("R", "sl_wrappers.R"))
+  source(here::here("R", "meta_learner.R"))
+  source(here::here("R", "pool_cate.R"))
+
+  tau  <- seq(-5, 3, length.out = 12)   # conventional Y(1)-Y(0), one per stratum
+  df   <- make_toy_wide_df(n_per_cell = 150, tau_by_cell = tau, seed = 21)
+  mids <- make_toy_wide_mids(df, m = 2, seed = 21)
+
+  fits   <- lapply(1:2, function(i) {
+    estimate_cate(mids, imp_idx = i, sl_libs = c("SL.mean", "SL.glm"),
+                  outcome = "MCS")
+  })
+  pooled <- pool_cate(fits)
+
+  expect_named(pooled, c("gate", "blp", "ate", "wald", "m"))
+  expect_equal(pooled$m, 2L)
+  expect_equal(nrow(pooled$gate), 12L)
+  expect_equal(nrow(pooled$blp), 2L)
+  expect_equal(nrow(pooled$wald), 2L)   # one row per imputation, unpooled
+
+  # GATE_j is on the Y(0) - Y(1) scale: recover -tau, in strata_id order
+  expect_lt(max(abs(pooled$gate$estimate - (-tau))), 1)
+  expect_gt(cor(pooled$gate$estimate, -tau), 0.9)
+
+  expect_true(all(pooled$gate$ll < pooled$gate$estimate))
+  expect_true(all(pooled$gate$ul > pooled$gate$estimate))
+  expect_true(all(pooled$gate$n_j_min <= pooled$gate$n_j_max))
+
+  # marginal mean(psi) pooled too, and near the n-weighted mean of -tau
+  expect_equal(nrow(pooled$ate), 1L)
+  expect_lt(abs(pooled$ate$estimate - mean(-tau)), 0.5)
+})
