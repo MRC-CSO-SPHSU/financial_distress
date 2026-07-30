@@ -276,9 +276,18 @@ Three complementary answers: the Chernozhukov *best linear predictor* (BLP) coef
 #| output: true
 cate_results$blp |>
   knitr::kable(
-    digits  = 3,
-    caption = "BLP heterogeneity test, pooled across imputations (HC3 SEs within imputation). beta1_ate is the marginal effect on the conventional Y(1) − Y(0) scale and should sit near the TMLE ATE; beta2_hte ≠ 0 is evidence that the 12 cells genuinely differ."
+    digits    = 3,
+    col.names = c("Term", "Estimate", "SE", "LL", "UL"),
+    caption = "BLP heterogeneity test, pooled across imputations (HC3 SEs within imputation). beta1_ate is the marginal effect on the conventional Y(1) − Y(0) scale and should sit near the TMLE ATE in magnitude; it is therefore opposite in sign to the DR-score marginal mean (cate_results$ate$estimate, shown in the sanity check below), which is on the Y(0) − Y(1) scale. beta2_hte ≠ 0 is evidence that the 12 cells genuinely differ."
   )
+
+# df1 (numerator df = number of strata - 1) is expected constant across
+# imputations; pool_cate.R's own header flags a differing stratum count as
+# theoretically possible, so assert rather than silently taking the first.
+stopifnot(
+  "wald test df1 differs across imputations -- stratum count is not stable" =
+    dplyr::n_distinct(cate_results$wald$df1) == 1
+)
 
 cate_results$wald |>
   summarise(
@@ -343,5 +352,13 @@ ggsave(
 )
 ```
 
-Three cautions bound this section. First, congeniality between the imputation model and a between-stratum contrast analysis is improved by the saturated $A \times S$ imputation terms but not exact — the analysis nuisances are nonparametric in all of $W$. Second, the thinnest cell (n ≈ 218 at ~7% exposure) rests on roughly 16 exposed observations; its wide interval and its ĝ diagnostics keep that visible. Third, the 12 projection SEs ignore cross-cell correlation induced by the shared nuisance fits, as is conventional.
+```{r cate-thinnest}
+#| output: false
+# Computed, not hardcoded: Workstream B re-runs the imputation, so a fixed
+# prose number for "the thinnest cell" would silently go stale. Derived from
+# the 12-row gate tibble so it tracks whatever data actually lands.
+thin <- cate_results$gate |> dplyr::slice_min(n_j_min, n = 1, with_ties = FALSE)
+```
+
+Three cautions bound this section. First, congeniality between the imputation model and a between-stratum contrast analysis is improved by the saturated $A \times S$ imputation terms but not exact — the analysis nuisances are nonparametric in all of $W$. Second, the thinnest cell (n ≈ `r thin$n_j_min` at ~`r round(thin$pct_exposed)`% exposure) rests on roughly `r round(thin$n_j_min * thin$pct_exposed / 100)` exposed observations; its wide interval and its ĝ diagnostics keep that visible. Third, the 12 projection SEs ignore cross-cell correlation induced by the shared nuisance fits, as is conventional.
 
