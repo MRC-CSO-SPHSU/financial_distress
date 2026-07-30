@@ -50,6 +50,10 @@ tar_option_set(
     "rlang",
     "here",
     "mice",
+    "estimatr",
+    "car",
+    "lmtest",
+    "sandwich",
     "tmle",
     "miceadds",
     "SuperLearner",
@@ -142,12 +146,25 @@ list(
                                  mi_ate_results
             )),
 
-# ---------- Heterogeneous Treatment Effects (HTEs) ---------------
-  # Step 1: Creating strata ids after imputation
-
-
-  # Step 2: Counts per stratum (id + label) for each imputed dataset
-  
+# ---------- Heterogeneous Treatment Effects: DR-learner GATEs ---------------
+  # Per imputation: independently cross-fit DR-learner nuisances, AIPW
+  # pseudo-outcome on the Y(0) - Y(1) scale, saturated projection onto the 12
+  # sex x race x education strata, BLP heterogeneity test. Pooled with Rubin's
+  # rules. Design: .claude/plans/2026-07-30-dr-learner-gate-design.md.
+  # Reuses tmle_imp_idx so branching stays aligned with tmle_one.
+  tar_target(
+    cate_one,
+    estimate_cate(
+      wide_mids = wide_mids,
+      imp_idx   = tmle_imp_idx,
+      sl_libs   = sl_libs,
+      outcome   = outcome_scale
+    ),
+    pattern   = map(tmle_imp_idx), # one branch per imputation
+    iteration = "list"             # collect the per-imputation results in a list
+  ),
+  tar_target(cate_results,
+             pool_cate(cate_one)),
 
   # Report
   tarchetypes::tar_quarto(report,
