@@ -204,6 +204,17 @@ make_counterfactual_matrix <- function(return_vals) {
 # sanitized labels would naturally sort into ("One","X2.","Zero"). Rebuilding
 # from the mapped values lets factor()'s default sort settle the new order, and
 # per-row values still line up 1:1 with the original either way.
+#
+# `levels =` is passed explicitly as `sort(unique(new_labels))` -- i.e.
+# derived from *every originally-defined level*, not from the rows actually
+# present in `df`. Without it, a bare `factor(new_labels[...])` derives its
+# level set from the observed values only, so a level with zero rows in this
+# particular frame (or every level, on a zero-row frame) silently vanishes
+# instead of being relabelled and kept -- breaking the "same object with
+# levels *replaced*" contract. `ordered = is.ordered(df[[v]])` carries
+# orderedness through too, since a bare `factor()` call always returns
+# unordered; no current hostile column is ordered, but this keeps the helper
+# honest if one becomes so (e.g. an ordinal factor with a hostile label).
 sanitize_factor_levels <- function(df, skip = character()) {
   hostile <- "[^A-Za-z0-9._]"
 
@@ -216,7 +227,9 @@ sanitize_factor_levels <- function(df, skip = character()) {
     lv <- levels(df[[v]])
     if (!any(grepl(hostile, lv))) next
     new_labels <- make.names(lv, unique = TRUE)
-    new_v <- factor(new_labels[as.integer(df[[v]])])
+    new_v <- factor(new_labels[as.integer(df[[v]])],
+                     levels  = sort(unique(new_labels)),
+                     ordered = is.ordered(df[[v]]))
     if (is_dt) data.table::set(df, j = v, value = new_v) else df[[v]] <- new_v
   }
 

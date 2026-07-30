@@ -645,3 +645,44 @@ test_that("sanitize_factor_levels honours skip and handles data.table without wa
   # input not modified by reference
   expect_equal(levels(dt$race_base), c("Non-white", "White"))
 })
+
+### review finding: a bare factor(new_labels[...]) with no `levels =` derives
+### its level set from observed rows only, so a defined-but-unused level
+### silently vanishes instead of being relabelled and kept -- breaking the
+### "levels replaced" contract. Guards the `levels = sort(unique(new_labels))`
+### fix.
+test_that("sanitize_factor_levels keeps a defined-but-unused level, relabelled", {
+  source(here::here("R", "helpers.R"))
+
+  # "2+" is a defined level with zero rows in this particular frame
+  toy <- data.frame(
+    dnc_lagged = factor(c("Zero", "One", "Zero"), levels = c("Zero", "One", "2+"))
+  )
+  expect_equal(nlevels(toy$dnc_lagged), 3L)
+
+  out <- sanitize_factor_levels(toy)
+
+  # level count preserved: the unused level is relabelled, not dropped
+  expect_equal(nlevels(out$dnc_lagged), 3L)
+  expect_equal(levels(out$dnc_lagged), c("One", "X2.", "Zero"))
+  # observed values still line up with the original
+  expect_equal(as.character(out$dnc_lagged), c("Zero", "One", "Zero"))
+})
+
+### same root cause, sharper failure mode: on a zero-row frame every hostile
+### column would otherwise come out with zero levels (factor(character(0)))
+test_that("sanitize_factor_levels keeps full level sets on a zero-row frame", {
+  source(here::here("R", "helpers.R"))
+
+  toy <- data.frame(
+    race_base  = factor(character(0), levels = c("White", "Non-white")),
+    dnc_lagged = factor(character(0), levels = c("Zero", "One", "2+"))
+  )
+  expect_equal(nrow(toy), 0L)
+
+  out <- sanitize_factor_levels(toy)
+
+  expect_equal(nrow(out), 0L)
+  expect_equal(levels(out$race_base), c("Non.white", "White"))
+  expect_equal(levels(out$dnc_lagged), c("One", "X2.", "Zero"))
+})
