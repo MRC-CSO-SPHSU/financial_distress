@@ -593,3 +593,55 @@ test_that("pool_cate recovers injected cell-specific effects", {
   expect_equal(nrow(pooled$ate), 1L)
   expect_lt(abs(pooled$ate$estimate - mean(-tau)), 0.5)
 })
+
+### sanitize_factor_levels: fix formula-hostile levels, leave numeric codes alone
+test_that("sanitize_factor_levels fixes only levels with formula-hostile characters", {
+  source(here::here("R", "helpers.R"))
+
+  toy <- data.frame(
+    race_base            = factor(c("White", "Non-white", "White")),
+    dnc_lagged           = factor(c("Zero", "One", "2+")),
+    econ_benefits_lagged = factor(c("No benefits", "Benefits", "Benefits")),
+    hiqual_dv_fact_base  = factor(c("High", "Medium", "Low")),
+    econ_dist_bin_0      = factor(c("0", "1", "0")),
+    age_dv_0             = c(30, 40, 50),
+    stringsAsFactors     = FALSE
+  )
+
+  out <- sanitize_factor_levels(toy)
+
+  # hostile levels rewritten
+  expect_equal(levels(out$race_base),            c("Non.white", "White"))
+  expect_equal(levels(out$dnc_lagged),           c("One", "X2.", "Zero"))
+  expect_equal(levels(out$econ_benefits_lagged), c("Benefits", "No.benefits"))
+
+  # already-clean factor untouched
+  expect_equal(levels(out$hiqual_dv_fact_base), levels(toy$hiqual_dv_fact_base))
+
+  # THE LANDMINE: numeric-coded exposure must survive as.integer(as.character(.))
+  expect_equal(levels(out$econ_dist_bin_0), c("0", "1"))
+  expect_equal(as.integer(as.character(out$econ_dist_bin_0)), c(0L, 1L, 0L))
+
+  # structure preserved
+  expect_equal(nrow(out), 3L)
+  expect_equal(names(out), names(toy))
+  expect_equal(out$age_dv_0, toy$age_dv_0)
+  # values, not just levels, still line up
+  expect_equal(as.character(out$race_base), c("White", "Non.white", "White"))
+})
+
+test_that("sanitize_factor_levels honours skip and handles data.table without warning", {
+  source(here::here("R", "helpers.R"))
+
+  dt <- data.table::data.table(
+    race_base = factor(c("White", "Non-white")),
+    keep_me   = factor(c("a b", "c d"))
+  )
+  out <- expect_no_warning(sanitize_factor_levels(dt, skip = "keep_me"))
+
+  expect_equal(levels(out$race_base), c("Non.white", "White"))
+  expect_equal(levels(out$keep_me), c("a b", "c d"))   # skipped
+  expect_true(data.table::is.data.table(out))
+  # input not modified by reference
+  expect_equal(levels(dt$race_base), c("Non-white", "White"))
+})

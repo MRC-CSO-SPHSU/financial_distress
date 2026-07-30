@@ -178,6 +178,47 @@ make_counterfactual_matrix <- function(return_vals) {
   }
   # regime node is predicted by all other variables (i.e., all confounders and the outcome)
   p_mat["regime", 1:(n_vars - 1)] <- 1
-  
+
   return(p_mat)
+}
+
+# Make factor levels safe to paste into a model formula.
+#
+# mice's `formulas` mode (R/run_mice.R) builds design-matrix column names from
+# factor level labels and re-parses them as formula terms, so a level containing
+# a space, hyphen or "+" ("Non-white", "No benefits", "2+") either fails to parse
+# or yields a mangled term. Same hazard the 2l.pmm samplers have in
+# run_mice_long().
+#
+# Rewrites a variable's levels ONLY when some level contains a character outside
+# [A-Za-z0-9._]. That deliberately leaves numeric-coded factors alone: a blind
+# make.names() pass turns econ_dist_bin's "0"/"1" into "X0"/"X1", and the
+# as.integer(as.character(A)) in fit_tmle_one()/estimate_cate() would then return
+# NA for every row with nothing but a coercion warning.
+#
+# Implementation note: levels are remapped through make.names() and the factor
+# is then rebuilt from the mapped character values rather than via
+# `factor(x, levels = old, labels = new)`. The latter keeps the *old* ordinal
+# level order (e.g. "2+" sorts before letters, so "dnc_lagged"'s old order is
+# "2+","One","Zero"), which stops matching the alphabetical order the new,
+# sanitized labels would naturally sort into ("One","X2.","Zero"). Rebuilding
+# from the mapped values lets factor()'s default sort settle the new order, and
+# per-row values still line up 1:1 with the original either way.
+sanitize_factor_levels <- function(df, skip = character()) {
+  hostile <- "[^A-Za-z0-9._]"
+
+  is_dt <- data.table::is.data.table(df)
+  if (is_dt) df <- data.table::copy(df)   # never modify the caller's table by reference
+
+  fct_cols <- setdiff(names(df)[vapply(df, is.factor, logical(1L))], skip)
+
+  for (v in fct_cols) {
+    lv <- levels(df[[v]])
+    if (!any(grepl(hostile, lv))) next
+    new_labels <- make.names(lv, unique = TRUE)
+    new_v <- factor(new_labels[as.integer(df[[v]])])
+    if (is_dt) data.table::set(df, j = v, value = new_v) else df[[v]] <- new_v
+  }
+
+  df
 }
