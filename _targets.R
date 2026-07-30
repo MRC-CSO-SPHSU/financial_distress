@@ -142,25 +142,13 @@ list(
                                  mi_ate_results
             )),
 
-# ---------- MAIHDA: multilevel analysis of individual heterogeneity and discriminatory accuracy ---------------
+# ---------- Heterogeneous Treatment Effects (HTEs) ---------------
   # Step 1: Creating strata ids after imputation
-  tar_target(strata_ids,
-             strata_creation(wide_mids)),
-  # Step 2: MAIHDA via hierarchical TMLE — stratum-level PATE, one fit per imputation.
-  tar_target(
-    maihda_one,
-    run_tmle_cluster(
-      strata_data = strata_ids$fits,
-      imp_idx     = tmle_imp_idx,
-      sl_libs.Q   = sl_libs,
-      sl_libs.g   = sl_libs,
-      outcome     = outcome_scale
-    ),
-    pattern   = map(tmle_imp_idx),
-    iteration = "list"
-  ),
-  tar_target(maihda_results,
-             pool_tmle_cluster(maihda_one)),
+
+
+  # Step 2: Counts per stratum (id + label) for each imputed dataset
+  
+
   # Report
   tarchetypes::tar_quarto(report,
                           "07_single_treatment.qmd")
