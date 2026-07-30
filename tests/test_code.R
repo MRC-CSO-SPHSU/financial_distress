@@ -260,3 +260,85 @@ test_that("make_strata errors when a stratum column is absent", {
   source(here::here("R", "strata_creation.R"))
   expect_error(make_strata(data.frame(sex_dv_base = factor("Female"))), "missing")
 })
+
+### DR score primitives (design 3.6-3.7; 7: AIPW identity, sign, Z alignment)
+test_that("dr_pseudo_outcome: mean(psi) recovers the true ATE with known nuisances", {
+  source(here::here("R", "meta_learner.R"))
+
+  set.seed(101)
+  n   <- 20000
+  x   <- rnorm(n)
+  g   <- plogis(-0.5 + 0.8 * x)
+  A   <- rbinom(n, 1, g)
+  mu0 <- 50 + 3 * x
+  mu1 <- mu0 - 2                       # true conventional ATE = -2
+  Y   <- ifelse(A == 1, mu1, mu0) + rnorm(n, 0, 2)
+
+  psi <- dr_pseudo_outcome(A, Y, mu0, mu1, bound_propensity(g))
+
+  # psi is on the Y(0) - Y(1) scale, so the truth here is +2
+  expect_equal(mean(psi), 2, tolerance = 0.1)
+})
+
+test_that("dr_pseudo_outcome: sign is Y(0) - Y(1), opposite to mu1 - mu0", {
+  source(here::here("R", "meta_learner.R"))
+
+  set.seed(102)
+  n   <- 500
+  g   <- rep(0.4, n)
+  A   <- rbinom(n, 1, g)
+  mu0 <- rnorm(n, 50, 5)
+  mu1 <- mu0 - 3
+  Y   <- ifelse(A == 1, mu1, mu0)      # zero residual: IPW terms vanish exactly
+
+  psi <- dr_pseudo_outcome(A, Y, mu0, mu1, g)
+
+  expect_equal(mean(psi), -(mean(mu1) - mean(mu0)), tolerance = 1e-12)
+  expect_true(sign(mean(psi)) == -sign(mean(mu1) - mean(mu0)))
+})
+
+test_that("dr_pseudo_outcome refuses unbounded propensities", {
+  source(here::here("R", "meta_learner.R"))
+  expect_error(
+    dr_pseudo_outcome(c(0L, 1L), c(1, 2), c(1, 1), c(1, 1), c(0, 0.5)),
+    "bound"
+  )
+})
+
+test_that("bound_propensity clamps to [0.025, 0.975]", {
+  source(here::here("R", "meta_learner.R"))
+  expect_equal(bound_propensity(c(0, 0.5, 1)), c(0.025, 0.5, 0.975))
+})
+
+test_that("SuperLearner $Z is out-of-fold, input-row-ordered and nameless", {
+  source(here::here("R", "meta_learner.R"))
+
+  set.seed(103)
+  n  <- 300
+  X  <- data.frame(x1 = rnorm(n), x2 = rnorm(n))
+  Yc <- 2 * X$x1 - X$x2 + rnorm(n)
+  fit <- SuperLearner::SuperLearner(Y = Yc, X = X, family = gaussian(),
+                                    SL.library = c("SL.mean", "SL.glm"),
+                                    cvControl = list(V = 5))
+
+  # $Z carries no dimnames: index by libraryNames position, never by name
+  expect_null(dimnames(fit$Z))
+  idx <- which(fit$libraryNames == "SL.glm_All")
+  expect_length(idx, 1L)
+
+  # manual V-fold refit reproduces Z exactly, in input row order (the design's
+  # empirical verification of 3.6, kept as a regression test against
+  # SuperLearner version changes)
+  manual <- rep(NA_real_, n)
+  for (v in seq_along(fit$validRows)) {
+    rows <- fit$validRows[[v]]
+    gfit <- glm(y ~ ., data = data.frame(y = Yc[-rows], X[-rows, ]),
+                family = gaussian())
+    manual[rows] <- predict(gfit, newdata = X[rows, ], type = "response")
+  }
+  expect_equal(max(abs(manual - fit$Z[, idx])), 0, tolerance = 1e-8)
+
+  # the hard-assertion wrapper: right length through, wrong length stops
+  expect_length(sl_oof_predictions(fit, n, "test"), n)
+  expect_error(sl_oof_predictions(fit, n - 1, "test"), "rows")
+})
