@@ -89,6 +89,7 @@ test_that("fit_tmle_one runs without error", {
   source(here::here("R", "import_cleaning.R"))
   source(here::here("R", "helpers.R"))
   source(here::here("R", "sl_wrappers.R"))
+  source(here::here("R", "confounders.R"))
   source(here::here("R", "fit_tmle_one.R"))
 
   pop_data  <- import_data(force = FALSE) |> clean_data() |> preproc_data()
@@ -192,4 +193,35 @@ test_that("how many strata will be for MAIHDA", {
     dplyr::count(dat_i, strata_id, strata_label)
   })
 
+})
+
+## ---- DR-learner GATE arm (design 2026-07-30) --------------------------------
+
+### shared confounder set: byte-identical between fit_tmle_one and estimate_cate
+test_that("confounders returns the exact fit_tmle_one adjustment set", {
+  source(here::here("R", "confounders.R"))
+
+  expect_identical(
+    confounders("MCS"),
+    c("sex_dv_base",
+      "hiqual_dv_fact_base",
+      "race_base",
+      "sf12mcs_dv_base",
+      "age_dv_0",
+      "gor_dv_fact_0",
+      "econ_dist_bin_lagged_0",
+      "pcs_lagged_0",
+      "dnc_lagged_0",
+      "home_owner_lagged_0",
+      "econ_benefits_lagged_0",
+      "mastat_lagged_0",
+      "econ_emp_bin_fact_0",
+      "log_income_0")
+  )
+  # PCS swaps exactly the two outcome-dependent entries
+  expect_identical(setdiff(confounders("PCS"), confounders("MCS")),
+                   c("sf12pcs_dv_base", "mcs_lagged_0"))
+  expect_identical(setdiff(confounders("MCS"), confounders("PCS")),
+                   c("sf12mcs_dv_base", "pcs_lagged_0"))
+  expect_error(confounders("XXX"))
 })
