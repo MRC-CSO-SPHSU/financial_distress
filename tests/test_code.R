@@ -225,3 +225,38 @@ test_that("confounders returns the exact fit_tmle_one adjustment set", {
                    c("sf12mcs_dv_base", "pcs_lagged_0"))
   expect_error(confounders("XXX"))
 })
+
+### make_strata: pure df -> df, same id arithmetic as the old strata_creation()
+test_that("make_strata builds the 12-cell id and label", {
+  source(here::here("R", "strata_creation.R"))
+
+  set.seed(1)
+  toy <- data.frame(
+    sex_dv_base         = factor(sample(c("Female", "Male"), 240, TRUE)),
+    race_base           = factor(sample(c("Non.white", "White"), 240, TRUE)),
+    hiqual_dv_fact_base = factor(sample(c("High", "Low", "Medium"), 240, TRUE)),
+    other_col           = rnorm(240)
+  )
+
+  out <- make_strata(toy)
+
+  expect_equal(nrow(out), 240L)
+  expect_true(all(c("strata_id", "strata_label") %in% names(out)))
+  expect_s3_class(out$strata_id, "factor")
+  expect_s3_class(out$strata_label, "factor")
+  expect_equal(nlevels(out$strata_id), 12L)
+  # id arithmetic: 100*sex + 10*race + hiqual on the factor level indices
+  expect_equal(as.character(out$strata_id),
+               as.character(100 * as.numeric(toy$sex_dv_base) +
+                             10 * as.numeric(toy$race_base) +
+                                  as.numeric(toy$hiqual_dv_fact_base)))
+  # row order and other columns untouched
+  expect_equal(out$other_col, toy$other_col)
+  # label format sex:race:educ
+  expect_true(all(grepl("^[^:]+:[^:]+:[^:]+$", as.character(out$strata_label))))
+})
+
+test_that("make_strata errors when a stratum column is absent", {
+  source(here::here("R", "strata_creation.R"))
+  expect_error(make_strata(data.frame(sex_dv_base = factor("Female"))), "missing")
+})
