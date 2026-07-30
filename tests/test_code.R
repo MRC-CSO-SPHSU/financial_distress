@@ -305,6 +305,16 @@ test_that("dr_pseudo_outcome refuses unbounded propensities", {
   )
 })
 
+### carried Task-4 finding: NA g_hat must fail diagnostically, not with R's
+### generic "missing value where TRUE/FALSE needed" from the bare comparison
+test_that("dr_pseudo_outcome refuses NA propensities with a diagnostic message", {
+  source(here::here("R", "meta_learner.R"))
+  expect_error(
+    dr_pseudo_outcome(c(0L, 1L), c(1, 2), c(1, 1), c(1, 1), c(NA, 0.5)),
+    "NA"
+  )
+})
+
 test_that("bound_propensity clamps to [0.025, 0.975]", {
   source(here::here("R", "meta_learner.R"))
   expect_equal(bound_propensity(c(0, 0.5, 1)), c(0.025, 0.5, 0.975))
@@ -406,13 +416,22 @@ make_toy_wide_mids <- function(df, m = 2, seed = 7) {
 
 ### design 7 "factor handling": estimate_cate runs on a small mids whose W
 ### contains factors
+### Distinct per-cell tau (design review #1a): a same-constant-everywhere
+### tau_by_cell (e.g. the generator's own default rep(-2, 12)) can't tell a
+### correct sign from a flipped one, because mean(psi) == n_j-weighted mean
+### of the cell GATEs is a pure algebraic identity that holds for *any* psi,
+### negated included (mutation-tested by the design-2026-07-30 reviewer: a
+### negated-psi mutant and a mu0/mu1-arm-swap mutant both left every original
+### assertion here passing). Distinct, signed effects per cell plus an
+### explicit sign/recovery check against them close that gap.
 test_that("estimate_cate runs on a small mids with factor confounders", {
   source(here::here("R", "confounders.R"))
   source(here::here("R", "strata_creation.R"))
   source(here::here("R", "sl_wrappers.R"))
   source(here::here("R", "meta_learner.R"))
 
-  df   <- make_toy_wide_df(n_per_cell = 60, seed = 11)
+  tau_by_cell <- c(-6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6)
+  df   <- make_toy_wide_df(n_per_cell = 100, tau_by_cell = tau_by_cell, seed = 11)
   mids <- make_toy_wide_mids(df, m = 2, seed = 11)
 
   res <- estimate_cate(mids, imp_idx = 1, sl_libs = c("SL.mean", "SL.glm"),
@@ -428,7 +447,7 @@ test_that("estimate_cate runs on a small mids with factor confounders", {
   expect_false(anyNA(res$gate$estimate))
   expect_true(all(res$gate$se > 0))
   expect_equal(sum(res$gate$n_j), nrow(df))
-  expect_true(all(res$gate$min_g >= 0.025 & res$gate$min_g <= 0.975))
+  expect_true(all(res$gate$min_g >= CATE_EPS & res$gate$min_g <= 1 - CATE_EPS))
 
   expect_equal(nrow(res$blp), 2L)
   expect_equal(res$blp$term, c("beta1_ate", "beta2_hte"))
@@ -439,4 +458,101 @@ test_that("estimate_cate runs on a small mids with factor confounders", {
   expect_equal(res$ate$estimate,
                sum(res$gate$estimate * res$gate$n_j) / sum(res$gate$n_j),
                tolerance = 1e-10)
+
+  # sign and per-cell recovery: gate$estimate is Y(0)-Y(1), i.e. -tau_by_cell.
+  # A sign-flip mutant misses this by ~2x|tau| (>= 2 everywhere here);
+  # measured max error under the true code is 0.88 (no-imputation-noise floor
+  # ~0.36, through make_toy_wide_mids() ~0.70), so tolerance = 1.0 is safe
+  # margin without being vacuous.
+  expect_equal(res$gate$estimate, -tau_by_cell, tolerance = 1.0)
+  # beta2_hte pins near +1 when the tau proxy tracks the true heterogeneity on
+  # the conventional scale; it flips to about -1 under a sign error.
+  expect_gt(res$blp$estimate[res$blp$term == "beta2_hte"], 0.5)
+})
+
+### design review #1b: make_toy_wide_df() randomizes A at a fixed 40% inside
+### every cell, so ghat is exactly recoverable and AIPW is then invariant to
+### which fitted model plays mu0's role vs mu1's role (a real, not
+### coincidental, consequence of double robustness when g is exactly
+### correctly specified -- confirmed algebraically and empirically: an
+### arm-swap mutant left the test above passing). Catching an arm swap needs
+### (i) A confounded by a continuous W the tiny SL.glm/SL.mean library can't
+### capture (so ghat is NOT exactly right) and (ii) a genuine W x A outcome
+### interaction (so mu0/mu1 are different functions of W, not a location
+### shift) -- otherwise the swap has nothing to bite on. This is a SEPARATE
+### generator, not a change to make_toy_wide_df(), which Tasks 6/12 rely on
+### unchanged.
+# A depends on age through a quadratic logit (b1*age_c + b2*age_c^2): a
+# linear-only learner (SL.glm) cannot recover this, so ghat is persistently
+# biased regardless of sample size. Y's treatment effect is linear in age
+# (tau0 + tau_age*(age-45)), a real W x A interaction SL.glm CAN represent for
+# mu0/mu1, isolating the arm-assignment bug as the swap's only source of
+# error. Calibrated empirically: swapping mu0_hat/mu1_hat inflates
+# mean(psi) by ~+0.9 to +1.1 against the truth, while the correctly-assigned
+# estimator recovers it within ~0.15.
+make_toy_confounded_df <- function(n_per_cell = 60, tau0 = -3, tau_age = -0.4,
+                                    b1 = 2.0, b2 = -3.0, seed = 31) {
+  set.seed(seed)
+  grid <- expand.grid(
+    sex_dv_base         = factor(c("Female", "Male")),
+    race_base           = factor(c("Non.white", "White")),
+    hiqual_dv_fact_base = factor(c("High", "Low", "Medium")),
+    KEEP.OUT.ATTRS = FALSE
+  )
+  df <- grid[rep(seq_len(12), each = n_per_cell), ]
+  n  <- nrow(df)
+
+  df$sf12mcs_dv_base        <- rnorm(n, 50, 8)
+  df$age_dv_0               <- rnorm(n, 45, 10)
+  df$gor_dv_fact_0          <- factor(sample(c("London", "North.East", "Wales"), n, TRUE))
+  df$econ_dist_bin_lagged_0 <- factor(rbinom(n, 1, 0.2))
+  df$pcs_lagged_0           <- rnorm(n, 50, 8)
+  df$dnc_lagged_0           <- factor(sample(c("Zero", "One", "Two.plus"), n, TRUE))
+  df$home_owner_lagged_0    <- factor(rbinom(n, 1, 0.6))
+  df$econ_benefits_lagged_0 <- factor(rbinom(n, 1, 0.3))
+  df$mastat_lagged_0        <- factor(sample(c("Partnered", "Not.partnered"), n, TRUE))
+  df$econ_emp_bin_fact_0    <- factor(sample(c("Employed", "Not.employed"), n, TRUE))
+  df$log_income_0           <- rnorm(n, 10, 1)
+
+  age_c  <- (df$age_dv_0 - 45) / 10
+  g_true <- plogis(-0.4 + b1 * age_c + b2 * age_c^2)
+  a      <- rbinom(n, 1, g_true)
+  df$econ_dist_bin_0 <- factor(a)
+
+  df$sf12mcs_dv_0 <- 0.5 * df$sf12mcs_dv_base +
+    2 * (df$sex_dv_base == "Female") +
+    0.1 * (df$age_dv_0 - 45) +
+    a * (tau0 + tau_age * (df$age_dv_0 - 45)) +
+    rnorm(n, 0, 1)
+
+  rownames(df) <- NULL
+  df
+}
+
+test_that("estimate_cate recovers the ATE under a confounded, W x A heterogeneous DGP", {
+  source(here::here("R", "confounders.R"))
+  source(here::here("R", "strata_creation.R"))
+  source(here::here("R", "sl_wrappers.R"))
+  source(here::here("R", "meta_learner.R"))
+
+  tau0    <- -3
+  tau_age <- -0.4
+  df   <- make_toy_confounded_df(n_per_cell = 60, tau0 = tau0, tau_age = tau_age, seed = 31)
+  mids <- make_toy_wide_mids(df, m = 2, seed = 31)
+
+  res <- estimate_cate(mids, imp_idx = 1, sl_libs = c("SL.mean", "SL.glm"),
+                       outcome = "MCS")
+
+  # true population ATE on the Y(0)-Y(1) scale, averaged over this sample's
+  # realized ages (tau0/tau_age fully determine it; no per-cell truth here --
+  # age is drawn iid of strata, so all 12 cells share the same population
+  # truth up to sampling noise)
+  truth <- -mean(tau0 + tau_age * (df$age_dv_0 - 45))
+  # expect_equal(..., tolerance=) on a *scalar* is a RELATIVE tolerance
+  # (all.equal.numeric semantics), not absolute -- confirmed empirically it
+  # would silently pass a mutant this test exists to catch. Assert the
+  # absolute gap directly instead: correctly-assigned arms recover the truth
+  # within ~0.05-0.15 at this n/seed; a mu0/mu1 arm swap inflates it by
+  # ~+1.0 (measured). 0.5 sits well inside that gap.
+  expect_lt(abs(res$ate$estimate - truth), 0.5)
 })

@@ -59,6 +59,10 @@ sl_oof_predictions <- function(fit, n_expected, label) {
 # DR-learner GATEs over sex x race x education, one imputed dataset
 # (design 2026-07-30, 3). Pooled across imputations by pool_cate().
 estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
+  # imp is documented as int in every returned tibble (gate/blp/ate/wald); coerce
+  # once here rather than at each tibble::tibble() call site.
+  imp_idx <- as.integer(imp_idx)
+
   # SuperLearner resolves learner names by string against globalenv() on fresh
   # batchtools workers -- same shim as fit_tmle_one(). Do not clean up.
   assign("SL.xgboost.tmle", SL.xgboost.tmle, envir = globalenv())
@@ -73,6 +77,10 @@ estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
   ## -- 3.3 numeric design matrix (SL.glmnet/SL.xgboost cannot take factors) --
   Wmat <- as.data.frame(model.matrix(~ ., dat[W])[, -1])
   names(Wmat) <- make.names(names(Wmat), unique = TRUE)
+  # model.matrix()'s default na.action = na.omit silently DROPS rows with a
+  # residual NA confounder instead of erroring, which would desynchronize
+  # Wmat from dat/A/Y (every row-index alignment below assumes they match 1:1).
+  stopifnot(nrow(Wmat) == nrow(dat))
 
   ## -- 3.4 treatment and outcome ---------------------------------------------
   A <- as.integer(as.character(dat$econ_dist_bin_0))   # factor, build_data.R:45
@@ -80,6 +88,12 @@ estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
   n <- nrow(dat)
 
   ## -- 3.5 nuisances: T-style, project sl_libs -------------------------------
+  # SuperLearner must be *attached* (library(SuperLearner)), not just
+  # namespace-qualified: its internal wrapper/screener resolution reaches for
+  # bare symbols (e.g. the "All" screening algorithm) that are only found on
+  # the search path. `SuperLearner::SuperLearner(...)` alone is not enough on
+  # a fresh worker -- Task 7 must list `SuperLearner` in
+  # `tar_option_set(packages = ...)`, which attaches it.
   mu0 <- SuperLearner::SuperLearner(
     Y = Y[A == 0], X = Wmat[A == 0, , drop = FALSE], family = gaussian(),
     SL.library = sl_libs, cvControl = list(V = 10))
@@ -101,6 +115,12 @@ estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
   mu0_hat[A == 1] <- predict(mu0, newdata = Wmat[A == 1, , drop = FALSE])$pred
   mu1_hat[A == 1] <- sl_oof_predictions(mu1, sum(A == 1), "mu1")
   mu1_hat[A == 0] <- predict(mu1, newdata = Wmat[A == 0, , drop = FALSE])$pred
+  # Own-arm NAs are already hard-asserted inside sl_oof_predictions(); this
+  # additionally covers the cross-arm predict() calls above, which have no
+  # such guard, and Y itself (a residual outcome NA would silently propagate
+  # the same way -- lm_robust()/lm() below drop NA rows without erroring,
+  # desynchronizing $fitted.values / tau from Y/A/g_hat -- see Important #2).
+  stopifnot(!anyNA(mu0_hat), !anyNA(mu1_hat), !anyNA(Y))
   g_hat <- sl_oof_predictions(gm, n, "g")
 
   ## -- 3.7 positivity bound and pseudo-outcome (THE sign-flip site) ----------
@@ -170,6 +190,10 @@ estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
   }
 
   ## -- 3.11 return ------------------------------------------------------------
+  # Scale note: ate$estimate is mean(psi), the Y(0)-Y(1) scale (3.7);
+  # blp$estimate[blp$term == "beta1_ate"] is the same population ATE but on
+  # the conventional Y(1)-Y(0) scale (3.9, tau un-flipped). The two therefore
+  # always print with opposite signs -- this is by design, not a bug.
   list(
     gate = gate,
     blp  = blp,
