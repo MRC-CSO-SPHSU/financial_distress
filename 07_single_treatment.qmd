@@ -241,77 +241,124 @@ ggsave(
 )
 ```
 
-# Secondary analysis: I-MAIHDA via TMLE
+# Secondary analysis: DR-learner GATEs by intersectional stratum
 
-The intersectional strata (sex × education × ethnicity) are treated as clusters and the estimand becomes the **cluster-level PATE**, $E[Y_c(1) - Y_c(0)]$ where $Y_{c,j}$ is the mean SF-12 MCS in stratum $j$. Each stratum contributes equally regardless of how many people are in it, whereas the primary TMLE above weights each *person* equally. The two therefore only coincide when stratum size is uninformative about the effect — the divergence is the quantity of interest.
+The marginal TMLE above gives one average effect. This section asks *for whom* the effect differs, estimating a **group average treatment effect** for each of the 12 intersectional strata $j$ (sex × ethnicity × education):
 
-Inference treats the stratum, not the person, as the independent unit, so the effective sample size for the interval is the number of strata.
+$$\text{GATE}_j = E[\,Y(0) - Y(1) \mid S = j\,]$$
 
-## Table
-```{r fit-maihda}
+**Sign convention.** $Y(0)$ is the no-distress potential outcome and financial distress lowers MCS, so $\text{GATE}_j > 0$ reads as **SF-12 MCS points *lost* to financial distress** in stratum $j$. Because the three stratum variables are already in the adjustment set $W$, no new identification assumption is introduced. Each person's doubly-robust (AIPW) pseudo-outcome is built from independently cross-fit SuperLearner nuisances and averaged within stratum via a saturated projection with HC2 standard errors; results are pooled across imputations with Rubin's rules.
+
+## Effects by stratum
+
+```{r cate-table}
 #| output: true
-maihda_results <- tar_read(maihda_results, store = tar_store)
+cate_results <- tar_read(cate_results, store = tar_store)
 
-knitr::kable(
-  maihda_results,
-  digits  = 3,
-  caption = "Hierarchical (cluster) TMLE, pooled across imputations with Rubin's rules, in SF-12 MCS points. The estimator returns an influence curve for the contrast only, so the counterfactual means are reported as point estimates without intervals. `df` is the Barnard-Rubin degrees of freedom with the number of strata as the complete-data sample size."
-)
+cate_results$gate |>
+  arrange(desc(estimate)) |>
+  select(strata_label, n_j_min, n_j_max, pct_exposed, min_g, median_g,
+         share_g_at_bound, estimate, ll, ul) |>
+  knitr::kable(
+    digits    = c(NA, 0, 0, 1, 3, 3, 3, 2, 2, 2),
+    col.names = c("Stratum (sex:race:education)", "n (min)", "n (max)",
+                  "% exposed", "min ĝ", "median ĝ", "share ĝ at bound",
+                  "GATE", "LL", "UL"),
+    caption   = "DR-learner group average treatment effects by intersectional stratum, pooled across imputations with Rubin's rules. GATE is E[Y(0) − Y(1) | S = j]: positive values are SF-12 MCS points LOST to financial distress. n (min/max) is the stratum-size range across imputations; the ĝ diagnostics flag cells whose estimate leans on extrapolated outcome predictions rather than overlap."
+  )
 ```
 
-## Graph
-```{r plot-maihda}
+## Is the heterogeneity real?
+
+Three complementary answers: the Chernozhukov *best linear predictor* (BLP) coefficient $\beta_2$ (on the conventional $Y(1)-Y(0)$ scale; $\beta_2 \neq 0$ means the cell-level variation is signal rather than noise), the omnibus Wald test of $\text{GATE}_1 = \dots = \text{GATE}_{12}$, and — as a specification check — the DR score's marginal mean against the sign-flipped TMLE ATE.
+
+```{r cate-heterogeneity}
+#| output: true
+cate_results$blp |>
+  knitr::kable(
+    digits    = 3,
+    col.names = c("Term", "Estimate", "SE", "LL", "UL"),
+    caption = "BLP heterogeneity test, pooled across imputations (HC3 SEs within imputation). beta1_ate is the marginal effect on the conventional Y(1) − Y(0) scale and should sit near the TMLE ATE in magnitude; it is therefore opposite in sign to the DR-score marginal mean (cate_results$ate$estimate, shown in the sanity check below), which is on the Y(0) − Y(1) scale. beta2_hte ≠ 0 is evidence that the 12 cells genuinely differ."
+  )
+
+# df1 (numerator df = number of strata - 1) is expected constant across
+# imputations; pool_cate.R's own header flags a differing stratum count as
+# theoretically possible, so assert rather than silently taking the first.
+stopifnot(
+  "wald test df1 differs across imputations -- stratum count is not stable" =
+    dplyr::n_distinct(cate_results$wald$df1) == 1
+)
+
+cate_results$wald |>
+  summarise(
+    `median F` = median(F),
+    df1        = first(df1),
+    `median p` = median(p),
+    `min p`    = min(p),
+    `max p`    = max(p)
+  ) |>
+  knitr::kable(
+    digits  = 3,
+    caption = "Omnibus Wald test of GATE_1 = ... = GATE_12. F statistics are not Rubin-pooled; the median and range across imputations are shown."
+  )
+```
+
+```{r cate-sanity}
+#| output: true
+tmle_ate_row <- tmle_results |> filter(type == "ate")
+
+tibble(
+  quantity = c("Pooled mean(ψ) — DR score, Y(0) − Y(1) scale",
+               "−1 × TMLE ATE (tmle_results)"),
+  estimate = c(cate_results$ate$estimate, -tmle_ate_row$effect),
+  ll       = c(cate_results$ate$ll, -tmle_ate_row$ul),
+  ul       = c(cate_results$ate$ul, -tmle_ate_row$ll)
+) |>
+  knitr::kable(
+    digits  = 3,
+    caption = "Sanity row: the DR score's marginal mean against the sign-flipped TMLE ATE. The two estimators share an estimand but no nuisance fits, so close agreement is expected and material disagreement indicates a nuisance-specification bug."
+  )
+```
+
+## Caterpillar plot
+
+```{r plot-cate-caterpillar}
 #| output: true
 #| include: true
 #| eval: true
-#| fig-cap: "Financial distress and SF-12 MCS, estimated two ways: the primary single-point TMLE (each person weighted equally) and the hierarchical cluster TMLE with intersectional strata as clusters (each stratum weighted equally). Intervals are 95%; the cluster-TMLE interval uses a t cutoff on the number of strata, so it is wider by construction."
+#| fig-cap: "Effect of financial distress on SF-12 MCS by intersectional stratum, E[Y(0) − Y(1) | S] with 95% CI: positive values are MCS points lost to distress. Dashed line: the marginal TMLE ATE, sign-flipped to match. Dotted line: zero."
 #| fig-width: 7
-#| fig-height: 4
+#| fig-height: 4.5
 
-maihda_plot_data <- bind_rows(
-  tmle_results |>
-    select(estimand, type, effect, ll, ul) |>
-    mutate(method = "TMLE (person-weighted)"),
-  maihda_results |>
-    select(estimand, type, effect, ll, ul) |>
-    mutate(method = "Cluster TMLE (stratum-weighted)")
-) |>
-  mutate(
-    method   = factor(method, levels = c("TMLE (person-weighted)",
-                                         "Cluster TMLE (stratum-weighted)")),
-    estimand = factor(estimand, levels = c("No distress", "Distress", "ATE")),
-    # Means (~50 MCS points) and the contrast (~-2) cannot share an x axis.
-    panel    = factor(ifelse(type == "ate", "Causal contrast (ATE)",
-                             "Counterfactual marginal means"),
-                      levels = c("Counterfactual marginal means",
-                                 "Causal contrast (ATE)"))
-  )
+ref_ate <- -(tmle_results |> filter(type == "ate") |> pull(effect))
 
-results_maihda <- maihda_plot_data |>
-  ggplot(aes(x = effect, y = estimand, colour = method,
-             xmin = ll, xmax = ul)) +
+cate_caterpillar <- cate_results$gate |>
+  mutate(strata_label = forcats::fct_reorder(factor(strata_label), estimate)) |>
+  ggplot(aes(x = estimate, y = strata_label)) +
   theme_bw() +
-  geom_vline(data = data.frame(panel = factor("Causal contrast (ATE)",
-                                              levels = levels(maihda_plot_data$panel))),
-             aes(xintercept = 0), linetype = "dashed", colour = "grey50") +
-  geom_point(size = 2.5, position = position_dodge(width = 0.5)) +
-  geom_errorbar(orientation = "y", width = 0.3, na.rm = TRUE,
-                position = position_dodge(width = 0.5)) +
-  scale_colour_brewer(palette = "Set1", name = "Estimator", guide = "legend") +
-  # "free" (not "free_x"): the means and the contrast need separate x ranges, and free y
-  # also drops the estimand levels that don't belong to each panel.
-  facet_wrap(~panel, ncol = 1, scales = "free") +
-  labs(x = "SF-12 MCS points (95% CI)", y = NULL) +
-  theme(panel.grid.minor = element_blank(),
-        legend.position  = "bottom")
+  geom_vline(xintercept = 0, linetype = "dotted", colour = "grey60") +
+  geom_vline(xintercept = ref_ate, linetype = "dashed", colour = "grey30") +
+  geom_pointrange(aes(xmin = ll, xmax = ul), size = 0.4) +
+  labs(x = "SF-12 MCS points lost to financial distress (95% CI)",
+       y = NULL) +
+  theme(panel.grid.minor = element_blank())
 
-print(results_maihda)
+print(cate_caterpillar)
 
 ggsave(
-  filename = here::here("figs", "maihda_comparison.png"),
-  plot     = results_maihda,
-  width = 7, height = 4, dpi = 300
+  filename = here::here("figs", "cate_caterpillar.png"),
+  plot     = cate_caterpillar,
+  width = 7, height = 4.5, dpi = 300
 )
 ```
 
+```{r cate-thinnest}
+#| output: false
+# Computed, not hardcoded: Workstream B re-runs the imputation, so a fixed
+# prose number for "the thinnest cell" would silently go stale. Derived from
+# the 12-row gate tibble so it tracks whatever data actually lands.
+thin <- cate_results$gate |> dplyr::slice_min(n_j_min, n = 1, with_ties = FALSE)
+```
+
+Three cautions bound this section. First, congeniality between the imputation model and a between-stratum contrast analysis is improved by the saturated $A \times S$ imputation terms but not exact — the analysis nuisances are nonparametric in all of $W$. Second, the thinnest cell (n ≈ `r thin$n_j_min` at ~`r round(thin$pct_exposed)`% exposure) rests on roughly `r round(thin$n_j_min * thin$pct_exposed / 100)` exposed observations; its wide interval and its ĝ diagnostics keep that visible. Third, the 12 projection SEs ignore cross-cell correlation induced by the shared nuisance fits, as is conventional.
 
