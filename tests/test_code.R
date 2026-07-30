@@ -686,3 +686,69 @@ test_that("sanitize_factor_levels keeps full level sets on a zero-row frame", {
   expect_equal(levels(out$race_base), c("Non.white", "White"))
   expect_equal(levels(out$dnc_lagged), c("One", "X2.", "Zero"))
 })
+
+### assert_congenial_terms: stop() (not message()) when an A-interaction is dropped
+test_that("assert_congenial_terms stops when an exposure interaction term is dropped", {
+  source(here::here("R", "run_mice.R"))
+
+  dropped <- list(loggedEvents = data.frame(
+    it = 1L, im = 1L, dep = "sf12mcs_dv_0", meth = "pmm",
+    out = "econ_dist_bin_01:race_baseNon.white",
+    stringsAsFactors = FALSE
+  ))
+  expect_error(assert_congenial_terms(dropped), "congenial")
+})
+
+test_that("assert_congenial_terms passes on clean or unrelated logged events", {
+  source(here::here("R", "run_mice.R"))
+
+  expect_true(assert_congenial_terms(list(loggedEvents = NULL)))
+  expect_true(assert_congenial_terms(
+    list(loggedEvents = data.frame(it = 0L, im = 0L, dep = "log_income_0",
+                                   meth = "pmm", out = "gor_dv_fact_0",
+                                   stringsAsFactors = FALSE))
+  ))
+  # a main-effect drop of the exposure itself is not an interaction drop
+  expect_true(assert_congenial_terms(
+    list(loggedEvents = data.frame(it = 1L, im = 1L, dep = "sf12mcs_dv_0",
+                                   meth = "pmm", out = "econ_dist_bin_lagged_0",
+                                   stringsAsFactors = FALSE))
+  ))
+})
+
+### run_mice: formulas carry the saturated A x S interaction
+test_that("run_mice builds Y and A formulas with the saturated strata interaction", {
+  source(here::here("R", "build_data.R"))
+  source(here::here("R", "run_mice.R"))
+  source(here::here("R", "import_cleaning.R"))
+  source(here::here("R", "helpers.R"))
+
+  wide_data <- build_data(preproc_data(clean_data(import_data(force = FALSE))),
+                          outcome = "MCS")
+
+  # m = 1, maxit = 1: we are checking model structure, not convergence
+  mids <- run_mice(wide_data, m = 1, maxit = 1, seed = 42, outcome = "MCS")
+
+  expect_s3_class(mids, "mids")
+
+  y_terms <- attr(terms(mids$formulas[["sf12mcs_dv_0"]]), "term.labels")
+  a_terms <- attr(terms(mids$formulas[["econ_dist_bin_0"]]), "term.labels")
+
+  # Term-label variable ORDER in terms() follows each variable's main-effect
+  # position in the whole formula (set by make.formulas()'s column order), not
+  # the order written in the interaction expression passed to reformulate() --
+  # so "econ_dist_bin_0:sex_dv_base:race_base:hiqual_dv_fact_base" comes back
+  # as "sex_dv_base:hiqual_dv_fact_base:race_base:econ_dist_bin_0" on real
+  # data. Same interaction (model.matrix/mice do not care about label order),
+  # so match on the *set* of variables in a term rather than an exact string.
+  has_term <- function(term_labels, vars) {
+    any(vapply(strsplit(term_labels, ":", fixed = TRUE),
+               function(parts) setequal(parts, vars), logical(1)))
+  }
+
+  # Y model: the 4-way A x S term must be present
+  expect_true(has_term(y_terms, c("econ_dist_bin_0", "sex_dv_base", "race_base", "hiqual_dv_fact_base")))
+  # A model: saturated S, but no A term (A is the target there)
+  expect_true(has_term(a_terms, c("sex_dv_base", "race_base", "hiqual_dv_fact_base")))
+  expect_false(any(grepl("econ_dist_bin_0", a_terms, fixed = TRUE)))
+})

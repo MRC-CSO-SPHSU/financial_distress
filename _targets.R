@@ -100,9 +100,10 @@ list(
   # Wide-format multiple imputation (one mids object, backs the single-point TMLE).
   tar_target(wide_mids,
              run_mice(wide_data,
-                      m     = mice_m,
-                      maxit = mice_maxit,
-                      seed  = seed_random)),
+                      m       = mice_m,
+                      maxit   = mice_maxit,
+                      seed    = seed_random,
+                      outcome = outcome_scale)),
 
   # Single-point TMLE: one fit per imputation (branch over imp_idx), then
   # Pool all the estimates with Rubin's rules.
