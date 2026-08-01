@@ -784,3 +784,50 @@ test_that(".gate_factors recovers the intersectional design from strata_label", 
   short <- g[1:6, ]
   expect_error(.gate_factors(short), "12")
 })
+
+### does fit_gate_meta return the documented shape, and does PCV behave
+test_that("fit_gate_meta returns documented tibbles and separates additive from interaction", {
+  source(here::here("R", "rma_reml.R"))
+  source(here::here("R", "fit_gate_meta.R"))
+
+  labs <- as.vector(outer(
+    outer(c("Female", "Male"), c("Non.white", "White"), paste, sep = ":"),
+    c("High", "Medium", "Low"), paste, sep = ":"))
+  base <- data.frame(imp = 1L, strata_id = as.character(seq_along(labs)),
+                     strata_label = labs, n_j = 500L, pct_exposed = 20,
+                     min_g = 0.025, median_g = 0.1, share_g_at_bound = 0.05,
+                     se = rep(0.4, 12))
+  g <- .gate_factors(base)
+  X <- model.matrix(~ sex + race + educ, g)
+
+  # (a) ADDITIVE truth plus modest noise -> main effects explain nearly
+  # everything -> PCV high. The noise matters: with EXACTLY additive estimates
+  # the additive model's RSS is 0, so s2w = 0, every SE collapses to 0 and the
+  # deleted residuals become 0/0. Verified values for this fixture:
+  # tau2_null 1.0169, tau2_main 0.0431, PCV 0.9576.
+  set.seed(3)
+  add <- base
+  add$estimate <- as.vector(X %*% c(2, -0.3, 2.0, -0.2, -0.6)) + rnorm(12, 0, 0.5)
+  r_add <- fit_gate_meta(add)
+
+  expect_named(r_add, c("scalars", "coefs", "cells", "loco"))
+  expect_equal(nrow(r_add$cells), 12L)
+  expect_equal(nrow(r_add$loco), 12L)
+  expect_equal(nrow(r_add$coefs), 5L)
+  expect_true(all(c("tau2_null", "tau2_main", "pcv", "mu", "se_mu") %in%
+                    names(r_add$scalars)))
+  expect_true(all(c("additive_pred", "blup", "del_resid", "n_j") %in%
+                    names(r_add$cells)))
+  expect_gt(r_add$scalars$pcv, 0.9)
+
+  # (b) inject a large INTERACTION into one cell -> PCV collapses.
+  # Verified for this fixture: PCV 0.9576 -> 0.3397.
+  int <- add; int$estimate[9] <- int$estimate[9] - 6
+  r_int <- fit_gate_meta(int)
+  expect_lt(r_int$scalars$pcv, 0.5)
+  expect_lt(r_int$scalars$pcv, r_add$scalars$pcv)
+
+  # the injected cell is the one the leave-one-out curve fingers
+  worst <- r_int$loco$dropped_label[which.max(r_int$loco$pcv_d)]
+  expect_equal(worst, labs[9])
+})
