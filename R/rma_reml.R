@@ -74,9 +74,31 @@ rma_reml <- function(yi, vi, X, knha = TRUE, level = 0.95) {
   beta <- unname(beta)
   se   <- unname(se)
 
+  ## se(tau2) from the inverse REML Fisher information, I(tau2) = 1/2 tr(PP)
+  P  <- .P_matrix(yi, vi, X, tau2)
+  se_tau2 <- sqrt(2 / sum(P * t(P)))            # tr(PP) = sum(P * t(P)); P symmetric
+
+  ## Heterogeneity, all on FIXED-effect weights w0 = 1/v (not the REML weights)
+  P0  <- .P_matrix(yi, vi, X, 0)
+  QE  <- as.numeric(crossprod(yi, P0 %*% yi))
+  vt  <- dfs / sum(diag(P0))                    # typical within-cell variance
+  I2  <- 100 * tau2 / (vt + tau2)
+  H2  <- tau2 / vt + 1
+
+  ## Omnibus moderator test (F, Knapp-Hartung), excluding the intercept
+  QM <- QMp <- NA_real_; m_mods <- p - 1L
+  if (m_mods > 0) {
+    idx <- 2:p
+    QM  <- as.numeric(crossprod(beta[idx],
+                                solve(vb[idx, idx, drop = FALSE], beta[idx]))) / m_mods
+    QMp <- pf(QM, m_mods, dfs, lower.tail = FALSE)
+  }
+
   list(k = k, p = p, dfs = dfs, tau2 = tau2, s2w = s2w,
        beta = beta, se = se, tval = beta / se,
        pval = 2 * pt(-abs(beta / se), dfs),
        ci.lb = beta - crit * se, ci.ub = beta + crit * se,
-       vb = vb, vb0 = f$vb0, yi = yi, vi = vi, X = X)
+       vb = vb, vb0 = f$vb0, yi = yi, vi = vi, X = X,
+       se_tau2 = se_tau2, QE = QE, QEp = pchisq(QE, dfs, lower.tail = FALSE),
+       vt = vt, I2 = I2, H2 = H2, QM = QM, QMp = QMp, m_mods = m_mods)
 }

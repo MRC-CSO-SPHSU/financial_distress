@@ -63,3 +63,37 @@ test_that("rma_reml returns exactly zero at the tau2 boundary", {
   expect_equal(hd$beta, as.vector(mf$beta), tolerance = 1e-9)
   expect_equal(hd$se,   as.vector(mf$se),   tolerance = 1e-9)
 })
+
+test_that("rma_reml reproduces metafor's heterogeneity and moderator statistics", {
+  skip_if_not_installed("metafor")
+  source(here::here("R", "rma_reml.R"))
+
+  X <- maihda_design()
+  set.seed(20260731)
+  vi <- runif(12, 0.05, 5)
+  yi <- as.vector(X %*% BETA_TRUE) + rnorm(12, 0, sqrt(1.2)) + rnorm(12, 0, sqrt(vi))
+
+  hd <- rma_reml(yi, vi, X, knha = TRUE)
+  mf <- metafor::rma(yi = yi, vi = vi, mods = X[, -1, drop = FALSE],
+                     method = "REML", test = "knha", control = ORACLE_CTRL)
+
+  expect_equal(hd$se_tau2, mf$se.tau2, tolerance = 1e-9)
+  expect_equal(hd$QE,      mf$QE,      tolerance = 1e-9)
+  expect_equal(hd$QEp,     mf$QEp,     tolerance = 1e-9)
+  expect_equal(hd$I2,      mf$I2,      tolerance = 1e-9)
+  expect_equal(hd$H2,      mf$H2,      tolerance = 1e-9)
+  expect_equal(hd$QM,      mf$QM,      tolerance = 1e-9)
+  expect_equal(hd$QMp,     mf$QMp,     tolerance = 1e-9)
+  expect_equal(hd$m_mods,  4L)
+
+  # null model: no moderators to test
+  X0  <- model.matrix(~ 1, data.frame(i = 1:12))
+  hd0 <- rma_reml(yi, vi, X0, knha = TRUE)
+  mf0 <- metafor::rma(yi = yi, vi = vi, method = "REML", test = "knha",
+                      control = ORACLE_CTRL)
+  expect_equal(hd0$tau2, mf0$tau2, tolerance = 1e-9)
+  expect_equal(hd0$QE,   mf0$QE,   tolerance = 1e-9)
+  expect_equal(hd0$I2,   mf0$I2,   tolerance = 1e-9)
+  expect_true(is.na(hd0$QM))
+  expect_equal(hd0$m_mods, 0L)
+})
