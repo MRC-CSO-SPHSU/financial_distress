@@ -120,3 +120,33 @@ test_that("blup_reml reproduces metafor::blup", {
   fitted_add <- as.vector(X %*% hd$beta)
   expect_true(all(abs(b_hd$pred - fitted_add) <= abs(yi - fitted_add) + 1e-12))
 })
+
+test_that("rstudent_reml reproduces metafor, including on an outlier cell", {
+  skip_if_not_installed("metafor")
+  source(here::here("R", "rma_reml.R"))
+
+  X <- maihda_design()
+  set.seed(20260731)
+  vi <- runif(12, 0.05, 5)
+  yi <- as.vector(X %*% BETA_TRUE) + rnorm(12, 0, sqrt(1.2)) + rnorm(12, 0, sqrt(vi))
+
+  # Inject an outlier, mimicking Male:Non.white:Low in the real data.
+  yi[9] <- yi[9] - 8
+
+  hd <- rstudent_reml(yi, vi, X, knha = TRUE)
+  mf <- metafor::rma(yi = yi, vi = vi, mods = X[, -1, drop = FALSE],
+                     method = "REML", test = "knha", control = ORACLE_CTRL)
+  rs <- rstudent(mf)
+
+  expect_equal(hd$resid, as.vector(rs$resid), tolerance = 1e-9)
+  expect_equal(hd$se,    as.vector(rs$se),    tolerance = 1e-9)
+  expect_equal(hd$z,     as.vector(rs$z),     tolerance = 1e-9)
+
+  # Guard the specific mistake this formula invites: the textbook form
+  # sqrt(v_j + tau2_del + vpred) omits the deleted fit's Knapp-Hartung factor
+  # and is wrong by ~7% on the outlier cell. Assert we are NOT computing it.
+  f9    <- rma_reml(yi[-9], vi[-9], X[-9, , drop = FALSE], knha = TRUE)
+  X9    <- X[9, , drop = FALSE]
+  naive <- sqrt(vi[9] + f9$tau2 + as.numeric(X9 %*% f9$vb %*% t(X9)))
+  expect_gt(abs(naive - hd$se[9]) / hd$se[9], 0.03)
+})

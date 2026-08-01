@@ -114,3 +114,29 @@ blup_reml <- function(fit) {
   vpred <- li * fit$vi + (1 - li)^2 * rowSums((fit$X %*% fit$vb) * fit$X)
   data.frame(pred = pred, se = sqrt(vpred))
 }
+
+# Deleted (leave-one-out) residuals. Refit without cell j, predict it, standardise.
+#
+#   resid_j = y_j - x_j' beta_(-j)
+#   se_j    = sqrt( s2w_(-j) * (v_j + tau2_(-j)) + x_j' vb_(-j) x_j )
+#
+# The deleted fit's Knapp-Hartung factor s2w_(-j) rescales BOTH v_j and
+# tau2_(-j). This is metafor's influence.rma.uni and it is NOT the textbook
+# form: when cell j is an outlier, dropping it makes the remaining cells fit
+# better than their SEs predict, so s2w_(-j) < 1 and se_j can legitimately fall
+# BELOW sqrt(v_j). Using sqrt(v_j + tau2_(-j) + vpred) instead disagrees by
+# ~7-17% on exactly the outlier cell the decomposition hinges on. Do not
+# "simplify" this.
+rstudent_reml <- function(yi, vi, X, knha = TRUE) {
+  k <- length(yi)
+  as.data.frame(t(vapply(seq_len(k), function(j) {
+    fj    <- rma_reml(yi[-j], vi[-j], X[-j, , drop = FALSE], knha = knha)
+    Xj    <- X[j, , drop = FALSE]
+    pred  <- as.numeric(Xj %*% fj$beta)
+    vpred <- as.numeric(Xj %*% fj$vb %*% t(Xj))
+    resid <- yi[j] - pred
+    sr    <- sqrt(fj$s2w * (vi[j] + fj$tau2) + vpred)
+    c(resid = resid, se = sr, z = resid / sr,
+      tau2_del = fj$tau2, s2w_del = fj$s2w)
+  }, numeric(5))))
+}
