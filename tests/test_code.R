@@ -752,3 +752,248 @@ test_that("run_mice builds Y and A formulas with the saturated strata interactio
   expect_true(has_term(a_terms, c("sex_dv_base", "race_base", "hiqual_dv_fact_base")))
   expect_false(any(grepl("econ_dist_bin_0", a_terms, fixed = TRUE)))
 })
+
+### does the MAIHDA layer recover the 2 x 2 x 3 design from the stratum labels
+test_that(".gate_factors recovers the intersectional design from strata_label", {
+  source(here::here("R", "fit_gate_meta.R"))
+
+  g <- data.frame(
+    strata_label = c("Female:Non.white:High", "Female:Non.white:Medium",
+                     "Female:Non.white:Low",  "Female:White:High",
+                     "Female:White:Medium",   "Female:White:Low",
+                     "Male:Non.white:High",   "Male:Non.white:Medium",
+                     "Male:Non.white:Low",    "Male:White:High",
+                     "Male:White:Medium",     "Male:White:Low"),
+    estimate = 1:12, se = rep(1, 12)
+  )
+
+  out <- .gate_factors(g)
+  expect_true(all(c("sex", "race", "educ") %in% names(out)))
+  expect_equal(nlevels(out$sex), 2L)
+  expect_equal(nlevels(out$race), 2L)
+  expect_equal(nlevels(out$educ), 3L)
+  expect_equal(nrow(unique(out[c("sex", "race", "educ")])), 12L)
+  expect_equal(ncol(model.matrix(~ sex + race + educ, out)), 5L)
+
+  # A label that does not split into exactly three parts must ERROR, not
+  # silently mislabel cells.
+  bad <- g; bad$strata_label[3] <- "Female:Non.white"
+  expect_error(.gate_factors(bad), "three")
+
+  # So must a set that is not a full 12-cell design.
+  short <- g[1:6, ]
+  expect_error(.gate_factors(short), "12")
+})
+
+### does fit_gate_meta return the documented shape, and does PCV behave
+test_that("fit_gate_meta returns documented tibbles and separates additive from interaction", {
+  source(here::here("R", "rma_reml.R"))
+  source(here::here("R", "fit_gate_meta.R"))
+
+  labs <- as.vector(outer(
+    outer(c("Female", "Male"), c("Non.white", "White"), paste, sep = ":"),
+    c("High", "Medium", "Low"), paste, sep = ":"))
+  base <- data.frame(imp = 1L, strata_id = as.character(seq_along(labs)),
+                     strata_label = labs, n_j = 500L, pct_exposed = 20,
+                     min_g = 0.025, median_g = 0.1, share_g_at_bound = 0.05,
+                     se = rep(0.4, 12))
+  g <- .gate_factors(base)
+  X <- model.matrix(~ sex + race + educ, g)
+
+  # (a) ADDITIVE truth plus modest noise -> main effects explain nearly
+  # everything -> PCV high. The noise matters: with EXACTLY additive estimates
+  # the additive model's RSS is 0, so s2w = 0, every SE collapses to 0 and the
+  # deleted residuals become 0/0. Verified values for this fixture:
+  # tau2_null 1.0169, tau2_main 0.0431, PCV 0.9576.
+  set.seed(3)
+  add <- base
+  add$estimate <- as.vector(X %*% c(2, -0.3, 2.0, -0.2, -0.6)) + rnorm(12, 0, 0.5)
+  r_add <- fit_gate_meta(add)
+
+  # top-level structure: four named components
+  expect_named(r_add, c("scalars", "coefs", "cells", "loco"))
+
+  # scalars: full column set in exact order (as constructed in fit_gate_meta)
+  expect_equal(nrow(r_add$scalars), 1L)
+  expect_named(r_add$scalars,
+               c("imp", "tau2_null", "se_tau2_null", "tau2_main", "se_tau2_main",
+                 "pcv", "I2_null", "I2_main", "vt_null", "vt_main", "mu", "se_mu",
+                 "QE_null", "QE_main", "QM", "QMp", "s2w_main"),
+               ignore.order = FALSE)
+  expect_type(r_add$scalars$imp, "integer")
+
+  # coefs: full column set, 5 rows (intercept + 4 main effects)
+  expect_equal(nrow(r_add$coefs), 5L)
+  expect_named(r_add$coefs, c("imp", "term", "estimate", "se"),
+               ignore.order = FALSE)
+  expect_type(r_add$coefs$imp, "integer")
+
+  # cells: full column set, 12 rows (one per stratum)
+  expect_equal(nrow(r_add$cells), 12L)
+  expect_named(r_add$cells,
+               c("imp", "strata_id", "strata_label", "estimate", "se",
+                 "additive_pred", "se_pred", "blup", "se_blup", "del_resid",
+                 "se_del_resid", "z", "tau2_del", "n_j", "pct_exposed", "min_g",
+                 "median_g", "share_g_at_bound"),
+               ignore.order = FALSE)
+  expect_type(r_add$cells$imp, "integer")
+
+  # loco: full column set, 12 rows (one per deleted cell)
+  expect_equal(nrow(r_add$loco), 12L)
+  expect_named(r_add$loco,
+               c("imp", "dropped_id", "dropped_label", "tau2_null_d",
+                 "se_tau2_null_d", "tau2_main_d", "se_tau2_main_d", "pcv_d"),
+               ignore.order = FALSE)
+  expect_type(r_add$loco$imp, "integer")
+
+  # f0/f1 attribution: mu and QE_null must come from the null (intercept-only) model
+  # Fit independently to verify
+  f0_chk <- rma_reml(add$estimate, add$se^2, model.matrix(~ 1, g), knha = TRUE)
+  expect_equal(r_add$scalars$mu, f0_chk$beta[1])
+  expect_equal(r_add$scalars$se_mu, f0_chk$se[1])
+  expect_equal(r_add$scalars$QE_null, f0_chk$QE)
+
+  # null model must leave more unexplained heterogeneity than additive model
+  expect_gt(r_add$scalars$QE_null, r_add$scalars$QE_main)
+
+  # PCV is high in the additive case
+  expect_gt(r_add$scalars$pcv, 0.9)
+
+  # (b) inject a large INTERACTION into one cell -> PCV collapses.
+  # Verified for this fixture: PCV 0.9576 -> 0.3397.
+  int <- add; int$estimate[9] <- int$estimate[9] - 6
+  r_int <- fit_gate_meta(int)
+
+  # same interface checks on the interaction case
+  expect_named(r_int$scalars,
+               c("imp", "tau2_null", "se_tau2_null", "tau2_main", "se_tau2_main",
+                 "pcv", "I2_null", "I2_main", "vt_null", "vt_main", "mu", "se_mu",
+                 "QE_null", "QE_main", "QM", "QMp", "s2w_main"),
+               ignore.order = FALSE)
+  expect_equal(nrow(r_int$loco), 12L)
+  expect_type(r_int$loco$imp, "integer")
+
+  # interaction behavior: PCV collapses
+  expect_lt(r_int$scalars$pcv, 0.5)
+  expect_lt(r_int$scalars$pcv, r_add$scalars$pcv)
+
+  # the injected cell is the one the leave-one-out curve fingers
+  worst <- r_int$loco$dropped_label[which.max(r_int$loco$pcv_d)]
+  expect_equal(worst, labs[9])
+})
+
+### does pool_gate_meta apply Rubin's rules in the documented shape
+test_that("pool_gate_meta pools across imputations and forms PCV from pooled tau2", {
+  source(here::here("R", "rma_reml.R"))
+  source(here::here("R", "fit_gate_meta.R"))
+  source(here::here("R", "pool_gate_meta.R"))
+
+  labs <- as.vector(outer(
+    outer(c("Female", "Male"), c("Non.white", "White"), paste, sep = ":"),
+    c("High", "Medium", "Low"), paste, sep = ":"))
+  mk <- function(i, jitter) {
+    b <- data.frame(imp = as.integer(i), strata_id = as.character(seq_along(labs)),
+                    strata_label = labs, n_j = 500L + i, pct_exposed = 20,
+                    min_g = 0.025, median_g = 0.1, share_g_at_bound = 0.05,
+                    se = rep(0.4, 12))
+    g <- .gate_factors(b)
+    X <- model.matrix(~ sex + race + educ, g)
+    b$estimate <- as.vector(X %*% c(2, -0.3, 2.0, -0.2, -0.6)) + jitter
+    b
+  }
+  # Jitter sd 0.8 (> the cell SE of 0.4) keeps every full-model tau2 strictly
+  # interior (n_tau2_zero == 0), so this fixture isolates Rubin pooling from
+  # the full-model boundary case (tested separately below). Under this seed
+  # one of the 72 leave-one-cell-out refits still lands on the tau2 = 0
+  # boundary -- exactly the LOCO-layer pattern Fix 1a added counting for, and
+  # the same pattern seen in the real data (LOCO clips the boundary while the
+  # full-model fits stay interior). The LOCO block pools arithmetically (see
+  # pool_gate_meta.R) so this does not affect the assertions below; the
+  # resulting warning is suppressed here and covered by the next test.
+  # Verified: pooled tau2_null 1.987, tau2_main 0.365, PCV 0.816, se_mu ratio
+  # 1.135.
+  set.seed(7)
+  one <- lapply(1:3, function(i) fit_gate_meta(mk(i, rnorm(12, 0, 0.8))))
+
+  p <- suppressWarnings(pool_gate_meta(one))
+
+  expect_named(p, c("scalars", "coefs", "cells", "loco", "tests", "m",
+                    "n_tau2_zero", "n_tau2_zero_loco"))
+  expect_equal(p$n_tau2_zero, 0L)
+  expect_equal(p$m, 3L)
+  expect_equal(nrow(p$scalars), 1L)
+  expect_equal(nrow(p$cells), 12L)
+  expect_equal(nrow(p$loco), 12L)
+  expect_equal(nrow(p$coefs), 5L)
+  expect_equal(nrow(p$tests), 3L)          # one row per imputation, not pooled
+
+  expect_true(is.finite(p$scalars$tau2_null))
+  expect_true(is.finite(p$scalars$tau2_main))
+  expect_gte(p$scalars$tau2_null, 0)
+  expect_gte(p$scalars$tau2_main, 0)
+
+  # Pinned values (Fix 3): promoted from a verified-but-unasserted comment so
+  # a regression in the back-transform (e.g. dropping "- eps", or writing
+  # se_tau2/tau2 instead of se_tau2/(tau2 + eps)) fails loudly instead of
+  # sliding through on finiteness/shape checks alone.
+  expect_equal(p$scalars$tau2_null, 1.987, tolerance = 1e-3)
+  expect_equal(p$scalars$tau2_main, 0.365, tolerance = 1e-3)
+  expect_equal(p$scalars$pcv,       0.816, tolerance = 1e-3)
+
+  # PCV must be formed FROM the pooled tau2 values, not averaged across
+  # imputations -- individual-imputation PCV can be negative at J = 12.
+  expect_equal(p$scalars$pcv,
+               (p$scalars$tau2_null - p$scalars$tau2_main) / p$scalars$tau2_null)
+
+  # pooled SEs exceed the mean within-imputation SE (between-imputation variance)
+  mean_within <- mean(purrr::map_dbl(one, ~ .x$scalars$se_mu))
+  expect_gte(p$scalars$se_mu, mean_within * 0.999)
+  expect_equal(p$scalars$se_mu / mean_within, 1.135, tolerance = 1e-3)
+
+  expect_true(all(p$cells$n_j_min <= p$cells$n_j_max))
+})
+
+### does pool_gate_meta warn when log-scale pooling can collapse tau2
+test_that("pool_gate_meta warns when any imputation hits the tau2 = 0 boundary", {
+  source(here::here("R", "rma_reml.R"))
+  source(here::here("R", "fit_gate_meta.R"))
+  source(here::here("R", "pool_gate_meta.R"))
+
+  labs <- as.vector(outer(
+    outer(c("Female", "Male"), c("Non.white", "White"), paste, sep = ":"),
+    c("High", "Medium", "Low"), paste, sep = ":"))
+  mk <- function(i, sd_noise) {
+    b <- data.frame(imp = as.integer(i), strata_id = as.character(seq_along(labs)),
+                    strata_label = labs, n_j = 500L, pct_exposed = 20,
+                    min_g = 0.025, median_g = 0.1, share_g_at_bound = 0.05,
+                    se = rep(0.4, 12))
+    g <- .gate_factors(b)
+    X <- model.matrix(~ sex + race + educ, g)
+    set.seed(100 + i)
+    b$estimate <- as.vector(X %*% c(2, -0.3, 2.0, -0.2, -0.6)) + rnorm(12, 0, sd_noise)
+    b
+  }
+  # sd well below the cell SE of 0.4 forces tau2_main to the zero boundary
+  one <- lapply(1:3, function(i) fit_gate_meta(mk(i, 0.05)))
+  expect_gt(sum(purrr::map_dbl(one, ~ .x$scalars$tau2_main) == 0), 0)
+
+  expect_warning(pool_gate_meta(one), "boundary")
+
+  # After warning fires, also verify the non-negativity invariant holds
+  p <- suppressWarnings(pool_gate_meta(one))
+  expect_gte(p$scalars$tau2_null, 0)
+  expect_gte(p$scalars$tau2_main, 0)
+  expect_gte(p$scalars$tau2_null_ll, 0)
+  expect_gte(p$scalars$tau2_main_ll, 0)
+  expect_gt(p$n_tau2_zero, 0)
+
+  # Fix 4: this is structurally why Fix 1's defect (the LOCO layer was
+  # unguarded while only the full-model layer was counted) survived review --
+  # the boundary test asserted only on p$scalars. Assert on p$loco too.
+  expect_true("n_zero_d" %in% names(p$loco))
+  expect_gt(p$n_tau2_zero_loco, 0)
+  expect_true(any(p$loco$n_zero_d > 0))
+  # "either finite or NA, never NaN or Inf": is.na(NaN) is TRUE in R, so check
+  # is.nan()/is.infinite() explicitly rather than relying on is.finite()/is.na().
+  expect_true(all(!is.nan(p$loco$pcv_d) & !is.infinite(p$loco$pcv_d)))
+})
