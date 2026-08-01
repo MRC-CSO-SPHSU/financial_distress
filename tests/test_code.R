@@ -810,20 +810,70 @@ test_that("fit_gate_meta returns documented tibbles and separates additive from 
   add$estimate <- as.vector(X %*% c(2, -0.3, 2.0, -0.2, -0.6)) + rnorm(12, 0, 0.5)
   r_add <- fit_gate_meta(add)
 
+  # top-level structure: four named components
   expect_named(r_add, c("scalars", "coefs", "cells", "loco"))
-  expect_equal(nrow(r_add$cells), 12L)
-  expect_equal(nrow(r_add$loco), 12L)
+
+  # scalars: full column set in exact order (as constructed in fit_gate_meta)
+  expect_equal(nrow(r_add$scalars), 1L)
+  expect_named(r_add$scalars,
+               c("imp", "tau2_null", "se_tau2_null", "tau2_main", "se_tau2_main",
+                 "pcv", "I2_null", "I2_main", "vt_null", "vt_main", "mu", "se_mu",
+                 "QE_null", "QE_main", "QM", "QMp", "s2w_main"),
+               ignore.order = FALSE)
+  expect_type(r_add$scalars$imp, "integer")
+
+  # coefs: full column set, 5 rows (intercept + 4 main effects)
   expect_equal(nrow(r_add$coefs), 5L)
-  expect_true(all(c("tau2_null", "tau2_main", "pcv", "mu", "se_mu") %in%
-                    names(r_add$scalars)))
-  expect_true(all(c("additive_pred", "blup", "del_resid", "n_j") %in%
-                    names(r_add$cells)))
+  expect_named(r_add$coefs, c("imp", "term", "estimate", "se"),
+               ignore.order = FALSE)
+  expect_type(r_add$coefs$imp, "integer")
+
+  # cells: full column set, 12 rows (one per stratum)
+  expect_equal(nrow(r_add$cells), 12L)
+  expect_named(r_add$cells,
+               c("imp", "strata_id", "strata_label", "estimate", "se",
+                 "additive_pred", "se_pred", "blup", "se_blup", "del_resid",
+                 "se_del_resid", "z", "tau2_del", "n_j", "pct_exposed", "min_g",
+                 "median_g", "share_g_at_bound"),
+               ignore.order = FALSE)
+  expect_type(r_add$cells$imp, "integer")
+
+  # loco: full column set, 12 rows (one per deleted cell)
+  expect_equal(nrow(r_add$loco), 12L)
+  expect_named(r_add$loco,
+               c("imp", "dropped_id", "dropped_label", "tau2_null_d",
+                 "se_tau2_null_d", "tau2_main_d", "se_tau2_main_d", "pcv_d"),
+               ignore.order = FALSE)
+  expect_type(r_add$loco$imp, "integer")
+
+  # f0/f1 attribution: mu and QE_null must come from the null (intercept-only) model
+  # Fit independently to verify
+  f0_chk <- rma_reml(add$estimate, add$se^2, model.matrix(~ 1, g), knha = TRUE)
+  expect_equal(r_add$scalars$mu, f0_chk$beta[1])
+  expect_equal(r_add$scalars$se_mu, f0_chk$se[1])
+  expect_equal(r_add$scalars$QE_null, f0_chk$QE)
+
+  # null model must leave more unexplained heterogeneity than additive model
+  expect_gt(r_add$scalars$QE_null, r_add$scalars$QE_main)
+
+  # PCV is high in the additive case
   expect_gt(r_add$scalars$pcv, 0.9)
 
   # (b) inject a large INTERACTION into one cell -> PCV collapses.
   # Verified for this fixture: PCV 0.9576 -> 0.3397.
   int <- add; int$estimate[9] <- int$estimate[9] - 6
   r_int <- fit_gate_meta(int)
+
+  # same interface checks on the interaction case
+  expect_named(r_int$scalars,
+               c("imp", "tau2_null", "se_tau2_null", "tau2_main", "se_tau2_main",
+                 "pcv", "I2_null", "I2_main", "vt_null", "vt_main", "mu", "se_mu",
+                 "QE_null", "QE_main", "QM", "QMp", "s2w_main"),
+               ignore.order = FALSE)
+  expect_equal(nrow(r_int$loco), 12L)
+  expect_type(r_int$loco$imp, "integer")
+
+  # interaction behavior: PCV collapses
   expect_lt(r_int$scalars$pcv, 0.5)
   expect_lt(r_int$scalars$pcv, r_add$scalars$pcv)
 
