@@ -97,3 +97,26 @@ test_that("rma_reml reproduces metafor's heterogeneity and moderator statistics"
   expect_true(is.na(hd0$QM))
   expect_equal(hd0$m_mods, 0L)
 })
+
+test_that("blup_reml reproduces metafor::blup", {
+  skip_if_not_installed("metafor")
+  source(here::here("R", "rma_reml.R"))
+
+  X <- maihda_design()
+  set.seed(20260731)
+  vi <- runif(12, 0.05, 5)
+  yi <- as.vector(X %*% BETA_TRUE) + rnorm(12, 0, sqrt(1.2)) + rnorm(12, 0, sqrt(vi))
+
+  hd <- rma_reml(yi, vi, X, knha = TRUE)
+  mf <- metafor::rma(yi = yi, vi = vi, mods = X[, -1, drop = FALSE],
+                     method = "REML", test = "knha", control = ORACLE_CTRL)
+
+  b_hd <- blup_reml(hd); b_mf <- metafor::blup(mf)
+  expect_equal(b_hd$pred, as.vector(b_mf$pred), tolerance = 1e-9)
+  expect_equal(b_hd$se,   as.vector(b_mf$se),   tolerance = 1e-9)
+
+  # BLUPs shrink toward the additive surface: each sits between the raw
+  # estimate and the fitted value, and is never more extreme than the raw one.
+  fitted_add <- as.vector(X %*% hd$beta)
+  expect_true(all(abs(b_hd$pred - fitted_add) <= abs(yi - fitted_add) + 1e-12))
+})

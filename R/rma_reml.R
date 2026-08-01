@@ -102,3 +102,15 @@ rma_reml <- function(yi, vi, X, knha = TRUE, level = 0.95) {
        se_tau2 = se_tau2, QE = QE, QEp = pchisq(QE, dfs, lower.tail = FALSE),
        vt = vt, I2 = I2, H2 = H2, QM = QM, QMp = QMp, m_mods = m_mods)
 }
+
+# BLUP: shrink each raw cell estimate toward the fitted additive surface.
+#   lambda_j = tau2/(tau2 + v_j);  blup_j = lambda_j*y_j + (1-lambda_j)*x_j'beta
+# Variance follows metafor::blup: lambda_j*v_j (NOT lambda_j^2*v_j) plus the
+# uncertainty in the fitted surface.
+blup_reml <- function(fit) {
+  li    <- fit$tau2 / (fit$tau2 + fit$vi)
+  Xb    <- as.vector(fit$X %*% fit$beta)
+  pred  <- li * fit$yi + (1 - li) * Xb
+  vpred <- li * fit$vi + (1 - li)^2 * rowSums((fit$X %*% fit$vb) * fit$X)
+  data.frame(pred = pred, se = sqrt(vpred))
+}
