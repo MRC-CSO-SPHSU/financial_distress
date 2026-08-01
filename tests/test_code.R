@@ -881,3 +881,84 @@ test_that("fit_gate_meta returns documented tibbles and separates additive from 
   worst <- r_int$loco$dropped_label[which.max(r_int$loco$pcv_d)]
   expect_equal(worst, labs[9])
 })
+
+### does pool_gate_meta apply Rubin's rules in the documented shape
+test_that("pool_gate_meta pools across imputations and forms PCV from pooled tau2", {
+  source(here::here("R", "rma_reml.R"))
+  source(here::here("R", "fit_gate_meta.R"))
+  source(here::here("R", "pool_gate_meta.R"))
+
+  labs <- as.vector(outer(
+    outer(c("Female", "Male"), c("Non.white", "White"), paste, sep = ":"),
+    c("High", "Medium", "Low"), paste, sep = ":"))
+  mk <- function(i, jitter) {
+    b <- data.frame(imp = as.integer(i), strata_id = as.character(seq_along(labs)),
+                    strata_label = labs, n_j = 500L + i, pct_exposed = 20,
+                    min_g = 0.025, median_g = 0.1, share_g_at_bound = 0.05,
+                    se = rep(0.4, 12))
+    g <- .gate_factors(b)
+    X <- model.matrix(~ sex + race + educ, g)
+    b$estimate <- as.vector(X %*% c(2, -0.3, 2.0, -0.2, -0.6)) + jitter
+    b
+  }
+  # Jitter sd 0.8 (> the cell SE of 0.4) keeps every imputation's tau2 strictly
+  # interior, so this fixture exercises pooling without tripping the boundary
+  # warning tested separately below. Verified: pooled tau2_null 1.987,
+  # tau2_main 0.365, PCV 0.816, se_mu ratio 1.135.
+  set.seed(7)
+  one <- lapply(1:3, function(i) fit_gate_meta(mk(i, rnorm(12, 0, 0.8))))
+
+  p <- pool_gate_meta(one)
+
+  expect_named(p, c("scalars", "coefs", "cells", "loco", "tests", "m", "n_tau2_zero"))
+  expect_equal(p$n_tau2_zero, 0L)
+  expect_equal(p$m, 3L)
+  expect_equal(nrow(p$scalars), 1L)
+  expect_equal(nrow(p$cells), 12L)
+  expect_equal(nrow(p$loco), 12L)
+  expect_equal(nrow(p$coefs), 5L)
+  expect_equal(nrow(p$tests), 3L)          # one row per imputation, not pooled
+
+  expect_true(is.finite(p$scalars$tau2_null))
+  expect_true(is.finite(p$scalars$tau2_main))
+  expect_gte(p$scalars$tau2_null, 0)
+  expect_gte(p$scalars$tau2_main, 0)
+
+  # PCV must be formed FROM the pooled tau2 values, not averaged across
+  # imputations -- individual-imputation PCV can be negative at J = 12.
+  expect_equal(p$scalars$pcv,
+               (p$scalars$tau2_null - p$scalars$tau2_main) / p$scalars$tau2_null)
+
+  # pooled SEs exceed the mean within-imputation SE (between-imputation variance)
+  mean_within <- mean(purrr::map_dbl(one, ~ .x$scalars$se_mu))
+  expect_gte(p$scalars$se_mu, mean_within * 0.999)
+
+  expect_true(all(p$cells$n_j_min <= p$cells$n_j_max))
+})
+
+### does pool_gate_meta warn when log-scale pooling can collapse tau2
+test_that("pool_gate_meta warns when any imputation hits the tau2 = 0 boundary", {
+  source(here::here("R", "rma_reml.R"))
+  source(here::here("R", "fit_gate_meta.R"))
+  source(here::here("R", "pool_gate_meta.R"))
+
+  labs <- as.vector(outer(
+    outer(c("Female", "Male"), c("Non.white", "White"), paste, sep = ":"),
+    c("High", "Medium", "Low"), paste, sep = ":"))
+  mk <- function(i, sd_noise) {
+    b <- data.frame(imp = as.integer(i), strata_id = as.character(seq_along(labs)),
+                    strata_label = labs, n_j = 500L, pct_exposed = 20,
+                    min_g = 0.025, median_g = 0.1, share_g_at_bound = 0.05,
+                    se = rep(0.4, 12))
+    g <- .gate_factors(b)
+    X <- model.matrix(~ sex + race + educ, g)
+    set.seed(100 + i)
+    b$estimate <- as.vector(X %*% c(2, -0.3, 2.0, -0.2, -0.6)) + rnorm(12, 0, sd_noise)
+    b
+  }
+  # sd well below the cell SE of 0.4 forces tau2_main to the zero boundary
+  one <- lapply(1:3, function(i) fit_gate_meta(mk(i, 0.05)))
+  expect_gt(sum(purrr::map_dbl(one, ~ .x$scalars$tau2_main) == 0), 0)
+
+  expect_warning(pool_gate_meta(one), "boundary")
+})
