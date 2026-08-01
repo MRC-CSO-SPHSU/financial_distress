@@ -179,7 +179,14 @@ list(
     gate_meta_one,
     fit_gate_meta(cate_one$gate),
     pattern   = map(cate_one),   # cate_one is iteration = "list": one element per branch
-    iteration = "list"
+    iteration = "list",
+    # This fit is milliseconds of work (REML on 12 numbers), but each branch
+    # still spawns its own SLURM job under the global plan's 24 GB / 6 h
+    # reservation -- wildly oversized for it. Override to something a cold
+    # worker actually needs.
+    resources = tar_resources(
+      future = tar_resources_future(resources = list(memory = 2 * 1024, walltime = 900))
+    )
   ),
   tar_target(gate_meta_results,
              pool_gate_meta(gate_meta_one)),

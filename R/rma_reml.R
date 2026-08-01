@@ -44,6 +44,10 @@
 rma_reml <- function(yi, vi, X, knha = TRUE, level = 0.95) {
   k <- length(yi); p <- ncol(X)
   stopifnot(k > p, all(vi > 0), nrow(X) == k, !anyNA(yi), !anyNA(vi))
+  # Only the Knapp-Hartung formulation is implemented and verified. The z/chi-square
+  # variant would need different reference distributions for pval, ci and QM, and is
+  # unused, so it is refused rather than silently approximated.
+  stopifnot(isTRUE(knha))
 
   ## tau2: bounded scalar maximisation, then polished on the score root.
   tau2_max <- 100 * max(vi)
@@ -65,7 +69,7 @@ rma_reml <- function(yi, vi, X, knha = TRUE, level = 0.95) {
   f    <- .wls(yi, vi, X, tau2)
   dfs  <- k - p
   s2w  <- f$RSS / dfs                           # Knapp-Hartung scale factor
-  vb   <- if (knha) s2w * f$vb0 else f$vb0
+  vb   <- s2w * f$vb0                           # KH-scaled vb (knha asserted TRUE above)
   se   <- sqrt(diag(vb))
   beta <- as.vector(f$beta)
   crit <- qt(1 - (1 - level) / 2, dfs)
@@ -128,6 +132,11 @@ blup_reml <- function(fit) {
 # ~7-17% on exactly the outlier cell the decomposition hinges on. Do not
 # "simplify" this.
 rstudent_reml <- function(yi, vi, X, knha = TRUE) {
+  # Only the Knapp-Hartung formulation is implemented and verified (see rma_reml()):
+  # the deleted-fit se below combines fj$s2w with fj$vb, which is KH-scaled by
+  # construction. A z/chi-square fj$vb would carry no such scale and this line
+  # would be silently wrong. Refused rather than silently approximated.
+  stopifnot(isTRUE(knha))
   k <- length(yi)
   as.data.frame(t(vapply(seq_len(k), function(j) {
     fj    <- rma_reml(yi[-j], vi[-j], X[-j, , drop = FALSE], knha = knha)

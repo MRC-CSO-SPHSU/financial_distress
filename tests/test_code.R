@@ -901,16 +901,24 @@ test_that("pool_gate_meta pools across imputations and forms PCV from pooled tau
     b$estimate <- as.vector(X %*% c(2, -0.3, 2.0, -0.2, -0.6)) + jitter
     b
   }
-  # Jitter sd 0.8 (> the cell SE of 0.4) keeps every imputation's tau2 strictly
-  # interior, so this fixture exercises pooling without tripping the boundary
-  # warning tested separately below. Verified: pooled tau2_null 1.987,
-  # tau2_main 0.365, PCV 0.816, se_mu ratio 1.135.
+  # Jitter sd 0.8 (> the cell SE of 0.4) keeps every full-model tau2 strictly
+  # interior (n_tau2_zero == 0), so this fixture isolates Rubin pooling from
+  # the full-model boundary case (tested separately below). Under this seed
+  # one of the 72 leave-one-cell-out refits still lands on the tau2 = 0
+  # boundary -- exactly the LOCO-layer pattern Fix 1a added counting for, and
+  # the same pattern seen in the real data (LOCO clips the boundary while the
+  # full-model fits stay interior). The LOCO block pools arithmetically (see
+  # pool_gate_meta.R) so this does not affect the assertions below; the
+  # resulting warning is suppressed here and covered by the next test.
+  # Verified: pooled tau2_null 1.987, tau2_main 0.365, PCV 0.816, se_mu ratio
+  # 1.135.
   set.seed(7)
   one <- lapply(1:3, function(i) fit_gate_meta(mk(i, rnorm(12, 0, 0.8))))
 
-  p <- pool_gate_meta(one)
+  p <- suppressWarnings(pool_gate_meta(one))
 
-  expect_named(p, c("scalars", "coefs", "cells", "loco", "tests", "m", "n_tau2_zero"))
+  expect_named(p, c("scalars", "coefs", "cells", "loco", "tests", "m",
+                    "n_tau2_zero", "n_tau2_zero_loco"))
   expect_equal(p$n_tau2_zero, 0L)
   expect_equal(p$m, 3L)
   expect_equal(nrow(p$scalars), 1L)
@@ -924,6 +932,14 @@ test_that("pool_gate_meta pools across imputations and forms PCV from pooled tau
   expect_gte(p$scalars$tau2_null, 0)
   expect_gte(p$scalars$tau2_main, 0)
 
+  # Pinned values (Fix 3): promoted from a verified-but-unasserted comment so
+  # a regression in the back-transform (e.g. dropping "- eps", or writing
+  # se_tau2/tau2 instead of se_tau2/(tau2 + eps)) fails loudly instead of
+  # sliding through on finiteness/shape checks alone.
+  expect_equal(p$scalars$tau2_null, 1.987, tolerance = 1e-3)
+  expect_equal(p$scalars$tau2_main, 0.365, tolerance = 1e-3)
+  expect_equal(p$scalars$pcv,       0.816, tolerance = 1e-3)
+
   # PCV must be formed FROM the pooled tau2 values, not averaged across
   # imputations -- individual-imputation PCV can be negative at J = 12.
   expect_equal(p$scalars$pcv,
@@ -932,6 +948,7 @@ test_that("pool_gate_meta pools across imputations and forms PCV from pooled tau
   # pooled SEs exceed the mean within-imputation SE (between-imputation variance)
   mean_within <- mean(purrr::map_dbl(one, ~ .x$scalars$se_mu))
   expect_gte(p$scalars$se_mu, mean_within * 0.999)
+  expect_equal(p$scalars$se_mu / mean_within, 1.135, tolerance = 1e-3)
 
   expect_true(all(p$cells$n_j_min <= p$cells$n_j_max))
 })
@@ -969,4 +986,14 @@ test_that("pool_gate_meta warns when any imputation hits the tau2 = 0 boundary",
   expect_gte(p$scalars$tau2_null_ll, 0)
   expect_gte(p$scalars$tau2_main_ll, 0)
   expect_gt(p$n_tau2_zero, 0)
+
+  # Fix 4: this is structurally why Fix 1's defect (the LOCO layer was
+  # unguarded while only the full-model layer was counted) survived review --
+  # the boundary test asserted only on p$scalars. Assert on p$loco too.
+  expect_true("n_zero_d" %in% names(p$loco))
+  expect_gt(p$n_tau2_zero_loco, 0)
+  expect_true(any(p$loco$n_zero_d > 0))
+  # "either finite or NA, never NaN or Inf": is.na(NaN) is TRUE in R, so check
+  # is.nan()/is.infinite() explicitly rather than relying on is.finite()/is.na().
+  expect_true(all(!is.nan(p$loco$pcv_d) & !is.infinite(p$loco$pcv_d)))
 })

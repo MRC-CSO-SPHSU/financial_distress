@@ -455,10 +455,23 @@ tibble::tibble(
 
 ```{r maihda-moderators}
 #| output: true
+# Reference categories are set by factor()'s default alphabetical ordering in
+# .gate_factors() (R/fit_gate_meta.R): Female < Male, Non.white < White,
+# High < Low < Medium -- so the reference cell is Female:Non.white:High.
+term_order  <- c("(Intercept)", "sexMale", "raceWhite", "educLow", "educMedium")
+term_labels <- c("Intercept (Female, Non.white, High)",
+                 "Male (ref: Female)",
+                 "White (ref: Non.white)",
+                 "Low education (ref: High)",
+                 "Medium education (ref: High)")
+
 gate_meta$coefs |>
+  dplyr::mutate(term = factor(term, levels = term_order, labels = term_labels)) |>
+  dplyr::arrange(term) |>
   knitr::kable(
-    digits  = 3,
-    caption = "Additive main-effect moderators of the stratum-specific effect, pooled. These are contrasts of GATEs, not of outcomes: a coefficient is how many more MCS points distress costs that group relative to the reference."
+    digits    = 3,
+    col.names = c("Term", "Estimate", "SE", "LL", "UL"),
+    caption   = "Additive main-effect moderators of the stratum-specific effect, pooled. Reference categories: Female (sex), Non.white (race), High (education) -- so the intercept is the additive-model prediction for the Female:Non.white:High stratum. These are contrasts of GATEs, not of outcomes: a coefficient is how many more MCS points distress costs that group relative to the reference."
   )
 ```
 
@@ -471,7 +484,7 @@ tibble::tibble(
   value = c(stats::median(gate_meta$tests$QM),
             stats::median(gate_meta$tests$QMp),
             stats::median(gate_meta$tests$QE_main),
-            sum(gate_meta$tests$pcv < 0))
+            sum(gate_meta$tests$pcv < 0, na.rm = TRUE))
 ) |>
   knitr::kable(
     digits  = 3,
@@ -488,15 +501,15 @@ tibble::tibble(
 #| fig-cap: "Additive main-effects prediction against the estimated GATE for each intersectional stratum. Points on the 45-degree line are fully explained by additive sex, race and education; vertical departures are the intersectional component. Y(0) - Y(1) scale: positive is MCS points lost to distress."
 #| fig-width: 6
 #| fig-height: 5
-library(ggplot2)
 ggplot(gate_meta$cells, aes(x = additive, y = gate)) +
+  theme_bw() +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50") +
   geom_pointrange(aes(ymin = gate_ll, ymax = gate_ul), size = 0.3) +
   ggrepel::geom_text_repel(aes(label = strata_label), size = 2.6,
                            max.overlaps = 20, seed = 1) +
   labs(x = "Additive main-effects prediction (MCS points)",
        y = "Estimated GATE (MCS points)") +
-  theme_minimal()
+  theme(panel.grid.minor = element_blank())
 ```
 
 ## Raw effects and shrunken estimates
@@ -513,6 +526,7 @@ ord <- gate_meta$cells |> dplyr::arrange(gate) |> dplyr::pull(strata_label)
 gate_meta$cells |>
   dplyr::mutate(strata_label = factor(strata_label, levels = ord)) |>
   ggplot(aes(y = strata_label)) +
+  theme_bw() +
   geom_vline(xintercept = 0, linetype = "dotted") +
   geom_vline(xintercept = gate_meta$scalars$mu, linetype = "dashed",
              colour = "grey40") +
@@ -520,7 +534,7 @@ gate_meta$cells |>
                   shape = 21, fill = NA, size = 0.4) +
   geom_point(aes(x = blup), shape = 16, size = 2) +
   labs(x = "E[Y(0) - Y(1) | S], MCS points lost to distress", y = NULL) +
-  theme_minimal()
+  theme(panel.grid.minor = element_blank())
 ```
 
 ## How much of this rests on one cell?
@@ -529,10 +543,11 @@ gate_meta$cells |>
 #| output: true
 gate_meta$loco |>
   dplyr::arrange(dplyr::desc(pcv_d)) |>
-  dplyr::select(dropped_label, tau2_null_d, tau2_main_d, pcv_d) |>
+  dplyr::select(dropped_label, tau2_null_d, tau2_main_d, pcv_d, n_zero_d) |>
   knitr::kable(
-    digits  = 3,
-    caption = "PCV recomputed with each stratum dropped in turn, sorted by the resulting PCV. The top row is the stratum whose removal most increases the share attributed to additive main effects -- i.e. the cell carrying the intersectional signal."
+    digits    = 3,
+    col.names = c("Dropped stratum", "tau2 (null)", "tau2 (additive)", "PCV", "n boundary hits"),
+    caption   = "PCV recomputed with each stratum dropped in turn, sorted by the resulting PCV. The top row is the stratum whose removal most increases the share attributed to additive main effects -- i.e. the cell carrying the intersectional signal. tau2 and PCV here are pooled arithmetically across imputations, not on the log scale (see the closing discussion): a non-zero 'n boundary hits' means that many of this row's per-imputation refits hit the tau2 = 0 boundary, which is exactly why this row is pooled arithmetically rather than by the headline's log-scale rule."
   )
 ```
 
@@ -574,9 +589,18 @@ shrunken estimates.
 Two further notes on interpretation. `I²` and PCV here are **effect-scale analogues** of the MAIHDA
 variance partition and proportional change in variance, which are conventionally computed on the
 *outcome* scale from a multilevel model of `Y`; they are not the same quantities and should not be
-compared numerically against outcome-scale MAIHDA papers. And τ² is pooled across imputations on the
-log scale, which is a geometric mean: a boundary estimate of exactly zero in any imputation would pull
-the pooled value toward zero and PCV toward one. That did not occur here
-(`r gate_meta$n_tau2_zero` of `r 2 * gate_meta$m` model fits hit the boundary), and
-`pool_gate_meta()` warns if it ever does.
+compared numerically against outcome-scale MAIHDA papers.
+
+τ² is pooled two different ways in this section, and deliberately so. The headline decomposition above
+(τ²_null, τ²_main, PCV) pools τ² across imputations on the *log* scale, which is a geometric mean: a
+boundary estimate of exactly zero in any imputation would pull the pooled value toward zero and PCV
+toward one. Of the `r 2 * gate_meta$m` full-model fits behind that headline,
+`r gate_meta$n_tau2_zero` hit the τ² = 0 boundary. The leave-one-cell-out table above pools τ²
+differently — *arithmetically* — precisely because that layer does reach the boundary in this data: of
+its `r 2 * 12 * gate_meta$m` per-imputation refits, `r gate_meta$n_tau2_zero_loco` hit τ² = 0 (see the
+table's "n boundary hits" column for which strata). An arithmetic mean handles a boundary value of zero
+natively and needs no interval, which matches the LOCO table's role as a descriptive sensitivity check
+rather than an inferential estimate; the geometric mean used for the headline would instead have been
+dragged toward zero by those same hits. `pool_gate_meta()` warns whenever either layer hits the
+boundary.
 

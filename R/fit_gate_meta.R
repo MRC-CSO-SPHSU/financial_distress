@@ -7,10 +7,11 @@
 
 # Recover sex / race / education by SPLITTING THE LABEL, not by parsing the
 # strata_id digits. strata_label comes from interaction(sex, race, hiqual,
-# sep = ":") in R/strata_creation.R and make.names() has already stripped any
-# ":" from the levels, so the split is exact. Reversing 100*sex + 10*race +
-# hiqual would instead depend on as.numeric(factor) level ordering and, if that
-# drifts, would silently mislabel cells rather than error.
+# sep = ":"), and sanitize_factor_levels() in R/helpers.R (called from
+# build_data()) has already stripped any ":" from the underlying factor
+# levels via make.names(), so the split is exact. Reversing 100*sex + 10*race
+# + hiqual would instead depend on as.numeric(factor) level ordering and, if
+# that drifts, would silently mislabel cells rather than error.
 .gate_factors <- function(gate_tbl) {
   parts <- strsplit(as.character(gate_tbl$strata_label), ":", fixed = TRUE)
   if (any(lengths(parts) != 3L)) {
@@ -86,7 +87,7 @@ fit_gate_meta <- function(gate_tbl) {
   # Leave-one-cell-out: how much of PCV rests on any single stratum? At J = 12
   # with a thin cell this is the difference between a finding and an artefact,
   # so it is a first-class output rather than a diagnostic.
-  loco <- purrr::map_dfr(seq_len(12), function(d) {
+  loco <- purrr::map_dfr(seq_len(nrow(g)), function(d) {
     d0 <- rma_reml(yi[-d], vi[-d], X0[-d, , drop = FALSE], knha = TRUE)
     d1 <- rma_reml(yi[-d], vi[-d], X1[-d, , drop = FALSE], knha = TRUE)
     tibble::tibble(

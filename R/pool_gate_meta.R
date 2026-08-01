@@ -54,13 +54,31 @@ pool_gate_meta <- function(gate_meta_one) {
 
   # A boundary tau2 = 0 in ANY imputation collapses the geometric mean (see
   # .pool_tau2). Loud, because the failure direction is "no heterogeneity found"
-  # -- the most dangerous way for a decomposition to be silently wrong.
-  n_tau2_zero <- sum(scalars_all$tau2_null == 0) + sum(scalars_all$tau2_main == 0)
-  if (n_tau2_zero > 0) {
-    warning("pool_gate_meta: tau2 hit the zero boundary in ", n_tau2_zero,
-            " model fit(s) across ", m, " imputations. Log-scale pooling is a ",
-            "geometric mean, so pooled tau2 is pulled toward zero and PCV ",
-            "toward 1. Inspect gate_meta_results$tests before reporting PCV.")
+  # -- the most dangerous way for a decomposition to be silently wrong. This
+  # applies to BOTH layers that call .pool_tau2(): the 2*m full-model fits
+  # (scalars_all) AND the 2*12*m leave-one-cell-out fits (loco_all). A real-data
+  # check found n_tau2_zero == 0 but n_tau2_zero_loco == 7 of 600 -- the LOCO
+  # layer hit the boundary while the full-model layer looked clean, which is
+  # exactly why both must be counted and reported (see Fix 1b: the LOCO block
+  # itself no longer uses log-scale pooling, but the count below still matters
+  # as a documented, reviewable fact about the per-imputation fits).
+  n_tau2_zero      <- sum(scalars_all$tau2_null == 0) + sum(scalars_all$tau2_main == 0)
+  n_tau2_zero_loco <- sum(loco_all$tau2_null_d == 0) + sum(loco_all$tau2_main_d == 0)
+  if (n_tau2_zero > 0 || n_tau2_zero_loco > 0) {
+    hit_layers <- c(
+      if (n_tau2_zero > 0)      "full-model" else NULL,
+      if (n_tau2_zero_loco > 0) "leave-one-cell-out" else NULL
+    )
+    warning("pool_gate_meta: tau2 hit the zero boundary in the ",
+            paste(hit_layers, collapse = " and "), " fit(s): ",
+            n_tau2_zero, " of ", 2 * m, " full-model fits, ",
+            n_tau2_zero_loco, " of ", 2 * 12 * m, " leave-one-cell-out fits. ",
+            "The full-model tau2 is pooled on the log scale (a geometric mean), ",
+            "so a boundary hit there pulls pooled tau2 toward zero and PCV ",
+            "toward 1 -- inspect gate_meta_results$tests before reporting PCV. ",
+            "The LOCO tau2 is pooled arithmetically (see the loco block) and so ",
+            "is robust to a boundary hit there, but the count is reported for ",
+            "transparency.")
   }
 
   t2_null <- .pool_tau2(scalars_all$tau2_null, scalars_all$se_tau2_null)
@@ -94,7 +112,7 @@ pool_gate_meta <- function(gate_meta_one) {
     # additive model fit worse than the null). Reported as a point estimate
     # with no interval -- its sampling uncertainty is not credibly quantifiable
     # from 12 cells.
-    pcv     = (t2n_est - t2m_est) / t2n_est,
+    pcv     = .pcv(t2n_est, t2m_est),
     I2_null = 100 * t2n_est / (vt_null_bar + t2n_est),
     I2_main = 100 * t2m_est / (vt_main_bar + t2m_est),
     mu      = mu_est, se_mu = mu_se, mu_ll = mu_ll, mu_ul = mu_ul
@@ -133,10 +151,34 @@ pool_gate_meta <- function(gate_meta_one) {
   loco <- loco_all |>
     dplyr::group_by(dropped_id, dropped_label) |>
     dplyr::group_modify(function(d, key) {
-      n <- .pool_tau2(d$tau2_null_d, d$se_tau2_null_d)
-      a <- .pool_tau2(d$tau2_main_d, d$se_tau2_main_d)
-      tibble::tibble(tau2_null_d = n$estimate, tau2_main_d = a$estimate,
-                     pcv_d = (n$estimate - a$estimate) / n$estimate)
+      # Arithmetic, NOT the log-scale geometric pooling used for the headline
+      # tau2. tau2_*_d hits exactly 0 in real data (measured: 7 of 600 fits,
+      # 6 of them on one cell), and log(0 + eps) = -13.8 would collapse the
+      # geometric mean and inflate pcv_d -- 0.958 against a defensible 0.70.
+      # This table is a descriptive sensitivity check with no interval, so the
+      # arithmetic mean is both adequate and boundary-safe.
+      #
+      # NOT calling .pcv() here (unlike the scalars block above): tn can
+      # legitimately be exactly 0 for a dropped cell, and .pcv() has no
+      # zero-denominator guard -- it would return NaN where this block
+      # deliberately returns NA_real_ instead.
+      tn <- mean(d$tau2_null_d)
+      tm <- mean(d$tau2_main_d)
+      tibble::tibble(
+        tau2_null_d = tn,
+        tau2_main_d = tm,
+        pcv_d       = if (tn == 0) NA_real_ else (tn - tm) / tn,
+        # per-imputation median, as a robustness column. Guard each element's
+        # division the same way as pcv_d: a per-imputation tau2_null_d == 0
+        # is undefined (0/0), not zero or infinite, so it becomes NA and is
+        # dropped from the median rather than corrupting it with NaN/Inf.
+        pcv_d_median = stats::median(
+          ifelse(d$tau2_null_d == 0, NA_real_,
+                 (d$tau2_null_d - d$tau2_main_d) / d$tau2_null_d),
+          na.rm = TRUE
+        ),
+        n_zero_d = sum(d$tau2_null_d == 0) + sum(d$tau2_main_d == 0)
+      )
     }) |>
     dplyr::ungroup()
 
@@ -147,5 +189,6 @@ pool_gate_meta <- function(gate_meta_one) {
     dplyr::select(imp, QE_null, QE_main, QM, QMp, pcv)
 
   list(scalars = scalars, coefs = coefs, cells = cells,
-       loco = loco, tests = tests, m = m, n_tau2_zero = n_tau2_zero)
+       loco = loco, tests = tests, m = m, n_tau2_zero = n_tau2_zero,
+       n_tau2_zero_loco = n_tau2_zero_loco)
 }

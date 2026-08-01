@@ -150,3 +150,13 @@ test_that("rstudent_reml reproduces metafor, including on an outlier cell", {
   naive <- sqrt(vi[9] + f9$tau2 + as.numeric(X9 %*% f9$vb %*% t(X9)))
   expect_gt(abs(naive - hd$se[9]) / hd$se[9], 0.03)
 })
+
+test_that("rma_reml refuses the unimplemented knha = FALSE variant", {
+  source(here::here("R", "rma_reml.R"))
+  X <- maihda_design()
+  set.seed(20260731)
+  vi <- runif(12, 0.05, 5)
+  yi <- as.vector(X %*% BETA_TRUE) + rnorm(12, 0, sqrt(1.2)) + rnorm(12, 0, sqrt(vi))
+  expect_error(rma_reml(yi, vi, X, knha = FALSE))
+  expect_error(rstudent_reml(yi, vi, X, knha = FALSE))
+})
