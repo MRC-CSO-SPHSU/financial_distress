@@ -20,7 +20,8 @@ pacman::p_load(DiagrammeR,
                tidyverse,
                mice,
                targets,
-               knitr)
+               knitr,
+               ggrepel)
 
 # The targets store lives at the project root. Pass its absolute path to every
 # tar_read() below so resolution doesn't depend on the working directory.
@@ -361,4 +362,221 @@ thin <- cate_results$gate |> dplyr::slice_min(n_j_min, n = 1, with_ties = FALSE)
 ```
 
 Three cautions bound this section. First, congeniality between the imputation model and a between-stratum contrast analysis is improved by the saturated $A \times S$ imputation terms but not exact — the analysis nuisances are nonparametric in all of $W$. Second, the thinnest cell (n ≈ `r thin$n_j_min` at ~`r round(thin$pct_exposed)`% exposure) rests on roughly `r round(thin$n_j_min * thin$pct_exposed / 100)` exposed observations; its wide interval and its ĝ diagnostics keep that visible. Third, the 12 projection SEs ignore cross-cell correlation induced by the shared nuisance fits, as is conventional.
+
+# Decomposition: additive main effects vs intersectional interaction
+
+The previous section establishes *that* the 12 strata differ. This one asks *how much* of that
+difference additive main effects can account for. The second stage treats the 12 GATEs as
+`GATE_j = x_j'β + u_j + e_j` with `u_j ~ N(0, τ²)` and `e_j ~ N(0, SE_j²)`, fitting it twice: once with
+no moderators and once with additive sex, race and education. `PCV = (τ²_null − τ²_main)/τ²_null` is the
+share of between-stratum effect variance the additive surface explains; the remainder is intersectional.
+All quantities keep the `Y(0) − Y(1)` convention — positive is MCS points lost to distress.
+
+```{r maihda-read}
+#| output: false
+gate_meta <- tar_read(gate_meta_results, store = tar_store)
+```
+
+## Two routes to the same question
+
+The DR-learner section already tested heterogeneity through the best linear predictor and an omnibus
+Wald test on the saturated projection. The random-effects stage tests it again through a completely
+separate mechanism — a variance component estimated by REML from the 12 estimates and their standard
+errors. The two share no machinery beyond the GATEs themselves, so agreement between them is
+corroboration rather than restatement.
+
+```{r maihda-two-routes}
+#| output: true
+blp2 <- cate_results$blp |> dplyr::filter(term == "beta2_hte")
+
+tibble::tibble(
+  route = c("DR-learner", "DR-learner",
+            "Random effects", "Random effects", "Random effects"),
+  statistic = c("BLP beta2 (heterogeneity slope)",
+                "Omnibus Wald F, median across imputations",
+                "tau: SD of true stratum effects (MCS points)",
+                "I^2 with no moderators (%)",
+                "Q with no moderators, median across imputations"),
+  estimate = c(blp2$estimate,
+               stats::median(cate_results$wald$F),
+               sqrt(max(0, gate_meta$scalars$tau2_null)),
+               gate_meta$scalars$I2_null,
+               stats::median(gate_meta$tests$QE_null)),
+  ll = c(blp2$ll, NA, sqrt(max(0, gate_meta$scalars$tau2_null_ll)), NA, NA),
+  ul = c(blp2$ul, NA, sqrt(max(0, gate_meta$scalars$tau2_null_ul)), NA, NA)
+) |>
+  knitr::kable(
+    digits  = 3,
+    caption = "Heterogeneity across the 12 intersectional strata, assessed two independent ways. The DR-learner statistics come from the saturated projection of the pseudo-outcome; the random-effects statistics come from a REML variance component fitted to the 12 (GATE, SE) pairs. They share no estimation machinery, so consistent verdicts are mutual corroboration. F and Q do not pool under Rubin's rules, hence medians."
+  )
+```
+
+## Whose average? Equal-stratum weight vs person weight
+
+```{r maihda-weighting}
+#| output: true
+tmle_ate <- tmle_results |> dplyr::filter(type == "ate")
+
+tibble::tibble(
+  quantity = c("Equal-stratum-weight mean effect (mu)",
+               "Person-weighted DR-score marginal effect",
+               "Person-weighted TMLE ATE (sign-flipped to match)"),
+  estimate = c(gate_meta$scalars$mu, cate_results$ate$estimate, -tmle_ate$effect),
+  ll       = c(gate_meta$scalars$mu_ll, cate_results$ate$ll, -tmle_ate$ul),
+  ul       = c(gate_meta$scalars$mu_ul, cate_results$ate$ul, -tmle_ate$ll)
+) |>
+  knitr::kable(
+    digits  = 3,
+    caption = "The same effect under two weighting schemes, both on the Y(0) - Y(1) scale (MCS points lost to distress). mu weights every intersectional stratum equally; the marginal estimates weight by population share. A gap between them is not disagreement between estimators -- it says the effect differs across strata whose sizes differ, and here the smaller non-white strata carry smaller effects."
+  )
+```
+
+## Decomposition
+
+```{r maihda-decomposition}
+#| output: true
+tibble::tibble(
+  quantity = c("tau^2, no moderators", "tau^2, additive main effects",
+               "I^2, no moderators (%)", "I^2, additive (%)",
+               "PCV (share explained by main effects)"),
+  estimate = c(gate_meta$scalars$tau2_null, gate_meta$scalars$tau2_main,
+               gate_meta$scalars$I2_null,   gate_meta$scalars$I2_main,
+               gate_meta$scalars$pcv),
+  ll = c(gate_meta$scalars$tau2_null_ll, gate_meta$scalars$tau2_main_ll,
+         NA, NA, NA),
+  ul = c(gate_meta$scalars$tau2_null_ul, gate_meta$scalars$tau2_main_ul,
+         NA, NA, NA)
+) |>
+  knitr::kable(
+    digits  = 3,
+    caption = "Random-effects decomposition of the 12 intersectional GATEs, pooled across imputations (shrink-then-pool: the fits run within each imputation, Rubin's rules after). tau^2 is between-stratum variance of true effects in squared MCS points. PCV is reported without an interval: with 12 cells its sampling uncertainty is not credibly quantifiable, as is conventional in MAIHDA."
+  )
+```
+
+```{r maihda-moderators}
+#| output: true
+gate_meta$coefs |>
+  knitr::kable(
+    digits  = 3,
+    caption = "Additive main-effect moderators of the stratum-specific effect, pooled. These are contrasts of GATEs, not of outcomes: a coefficient is how many more MCS points distress costs that group relative to the reference."
+  )
+```
+
+```{r maihda-tests}
+#| output: true
+tibble::tibble(
+  statistic = c("Moderator test F (median)", "Moderator test p (median)",
+                "Residual QE, additive model (median)",
+                "Imputations with PCV < 0"),
+  value = c(stats::median(gate_meta$tests$QM),
+            stats::median(gate_meta$tests$QMp),
+            stats::median(gate_meta$tests$QE_main),
+            sum(gate_meta$tests$pcv < 0))
+) |>
+  knitr::kable(
+    digits  = 3,
+    caption = "Per-imputation test statistics. F and Q statistics do not pool under Rubin's rules, so medians across imputations are reported. A non-significant moderator test alongside surviving residual heterogeneity is the signature of effect variation that is intersectional rather than additive."
+  )
+```
+
+## Additive prediction vs estimated effect
+
+```{r maihda-additivity}
+#| output: true
+#| include: true
+#| eval: true
+#| fig-cap: "Additive main-effects prediction against the estimated GATE for each intersectional stratum. Points on the 45-degree line are fully explained by additive sex, race and education; vertical departures are the intersectional component. Y(0) - Y(1) scale: positive is MCS points lost to distress."
+#| fig-width: 6
+#| fig-height: 5
+library(ggplot2)
+ggplot(gate_meta$cells, aes(x = additive, y = gate)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(aes(ymin = gate_ll, ymax = gate_ul), size = 0.3) +
+  ggrepel::geom_text_repel(aes(label = strata_label), size = 2.6,
+                           max.overlaps = 20, seed = 1) +
+  labs(x = "Additive main-effects prediction (MCS points)",
+       y = "Estimated GATE (MCS points)") +
+  theme_minimal()
+```
+
+## Raw effects and shrunken estimates
+
+```{r maihda-caterpillar}
+#| output: true
+#| include: true
+#| eval: true
+#| fig-cap: "Raw DR-learner GATE (open circles, 95% CI) and the shrunken random-effects estimate (filled) for each stratum. Dashed line: the equal-stratum-weight mean effect mu. Shrunken values are predictions under the assumption that stratum effects are exchangeable draws, and pull toward the additive surface by construction -- every stratum-specific claim in the text quotes the RAW estimate."
+#| fig-width: 7
+#| fig-height: 4.5
+ord <- gate_meta$cells |> dplyr::arrange(gate) |> dplyr::pull(strata_label)
+
+gate_meta$cells |>
+  dplyr::mutate(strata_label = factor(strata_label, levels = ord)) |>
+  ggplot(aes(y = strata_label)) +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  geom_vline(xintercept = gate_meta$scalars$mu, linetype = "dashed",
+             colour = "grey40") +
+  geom_pointrange(aes(x = gate, xmin = gate_ll, xmax = gate_ul),
+                  shape = 21, fill = NA, size = 0.4) +
+  geom_point(aes(x = blup), shape = 16, size = 2) +
+  labs(x = "E[Y(0) - Y(1) | S], MCS points lost to distress", y = NULL) +
+  theme_minimal()
+```
+
+## How much of this rests on one cell?
+
+```{r maihda-loco}
+#| output: true
+gate_meta$loco |>
+  dplyr::arrange(dplyr::desc(pcv_d)) |>
+  dplyr::select(dropped_label, tau2_null_d, tau2_main_d, pcv_d) |>
+  knitr::kable(
+    digits  = 3,
+    caption = "PCV recomputed with each stratum dropped in turn, sorted by the resulting PCV. The top row is the stratum whose removal most increases the share attributed to additive main effects -- i.e. the cell carrying the intersectional signal."
+  )
+```
+
+```{r maihda-loco-prose}
+#| output: false
+# Computed, not hardcoded, so the prose tracks whatever the run produces.
+loco_top  <- gate_meta$loco |> dplyr::slice_max(pcv_d, n = 1, with_ties = FALSE)
+thin_cell <- gate_meta$cells |> dplyr::slice_min(n_j_min, n = 1, with_ties = FALSE)
+# The leverage cell and the thinnest cell are NOT the same cell here, and the
+# prose below says so. Do not collapse them into one sentence.
+lev_cell  <- gate_meta$cells |>
+  dplyr::filter(strata_label == loco_top$dropped_label)
+thin_rank <- gate_meta$loco |>
+  dplyr::arrange(dplyr::desc(pcv_d)) |>
+  dplyr::mutate(rank = dplyr::row_number()) |>
+  dplyr::filter(dropped_label == thin_cell$strata_label)
+```
+
+Additive sex, race and education account for `r round(100 * gate_meta$scalars$pcv)`% of the
+between-stratum variance in the effect of financial distress; the remaining
+`r round(100 * (1 - gate_meta$scalars$pcv))`% is intersectional. Three cautions.
+
+First, the decomposition is not evenly supported across cells: dropping
+**`r loco_top$dropped_label`** alone moves PCV from `r round(gate_meta$scalars$pcv, 2)` to
+`r round(loco_top$pcv_d, 2)`. Note this is *not* the thinnest cell. A random-effects model weights each
+stratum by `1/(τ² + SE²)`, so leverage follows precision, not the size of the raw deviation.
+**`r loco_top$dropped_label`** carries the result because its departure from the additive surface is
+precisely estimated (n ≈ `r lev_cell$n_j_min`, SE `r round(lev_cell$gate_se, 2)`), whereas the thinnest
+stratum **`r thin_cell$strata_label`** (n ≈ `r thin_cell$n_j_min`, SE `r round(thin_cell$gate_se, 2)`)
+has the largest raw residual but is downweighted to rank `r thin_rank$rank` of 12 in leverage. The
+intersectional signal therefore rests on one of the best-estimated strata in the sample, not on a
+sparse one.
+
+Second, τ², I² and PCV rest on 12 estimates with 7 residual degrees of freedom; they are descriptive,
+and PCV carries no interval. Third, the second stage assumes stratum effects are exchangeable draws
+from `N(x_j'β, τ²)` — the same assumption conventional MAIHDA makes, and the price of both τ² and the
+shrunken estimates.
+
+Two further notes on interpretation. `I²` and PCV here are **effect-scale analogues** of the MAIHDA
+variance partition and proportional change in variance, which are conventionally computed on the
+*outcome* scale from a multilevel model of `Y`; they are not the same quantities and should not be
+compared numerically against outcome-scale MAIHDA papers. And τ² is pooled across imputations on the
+log scale, which is a geometric mean: a boundary estimate of exactly zero in any imputation would pull
+the pooled value toward zero and PCV toward one. That did not occur here
+(`r gate_meta$n_tau2_zero` of `r 2 * gate_meta$m` model fits hit the boundary), and
+`pool_gate_meta()` warns if it ever does.
 
