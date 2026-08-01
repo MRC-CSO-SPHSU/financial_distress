@@ -961,4 +961,12 @@ test_that("pool_gate_meta warns when any imputation hits the tau2 = 0 boundary",
   expect_gt(sum(purrr::map_dbl(one, ~ .x$scalars$tau2_main) == 0), 0)
 
   expect_warning(pool_gate_meta(one), "boundary")
+
+  # After warning fires, also verify the non-negativity invariant holds
+  p <- suppressWarnings(pool_gate_meta(one))
+  expect_gte(p$scalars$tau2_null, 0)
+  expect_gte(p$scalars$tau2_main, 0)
+  expect_gte(p$scalars$tau2_null_ll, 0)
+  expect_gte(p$scalars$tau2_main_ll, 0)
+  expect_gt(p$n_tau2_zero, 0)
 })

@@ -24,17 +24,23 @@ POOL_TAU2_EPS <- 1e-6
 # CAUTION: back-transforming a mean of logs is a GEOMETRIC mean, so a single
 # imputation with tau2 = 0 contributes log(1e-6) = -13.8 and drags the pooled
 # tau2 to near zero however large the others are. Measured on a 3-imputation
-# fixture: one boundary value pulled pooled tau2_main from ~0.15 to 0.0033 and
-# PCV to 0.998 -- a spurious "entirely additive" reading. tau2 was interior in
-# all 50 real imputations, so this does not bite today, but it would the moment
-# the imputation model or m changes. Hence the warning in pool_gate_meta().
+# fixture with one boundary hit: per-imputation tau2_main were 0.347, 0.101, 0;
+# pooled tau2_main came out 0.0033 and PCV 0.998 (entirely additive). tau2 was
+# interior in all 50 real imputations, so this does not bite today, but it
+# would the moment the imputation model or m changes. Hence the warning in
+# pool_gate_meta().
+#
+# tau2 is a variance (non-negative), so clamp both estimate and ll at zero.
+# The ul can be Inf when every imputation hits the boundary: se_log = eps/eps
+# is enormous and the interval is genuinely unbounded. This is the honest
+# answer; the n_tau2_zero warning tells the user why.
 .pool_tau2 <- function(tau2, se_tau2, eps = POOL_TAU2_EPS) {
   Q <- log(tau2 + eps)
   U <- (se_tau2 / (tau2 + eps))^2
   pooled <- mice::pool.scalar(Q = Q, U = U, n = Inf, k = 1)
   se <- sqrt(pooled$t)
-  tibble::tibble(estimate = exp(pooled$qbar) - eps,
-                 ll = exp(pooled$qbar - 1.96 * se) - eps,
+  tibble::tibble(estimate = pmax(exp(pooled$qbar) - eps, 0),
+                 ll = pmax(exp(pooled$qbar - 1.96 * se) - eps, 0),
                  ul = exp(pooled$qbar + 1.96 * se) - eps)
 }
 
