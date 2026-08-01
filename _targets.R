@@ -167,6 +167,23 @@ list(
   tar_target(cate_results,
              pool_cate(cate_one)),
 
+  # ---------- MAIHDA decomposition of the GATEs ------------------------------
+  # Second stage on the 12 (GATE_j, SE_j) pairs: how much of the between-stratum
+  # effect variation is additive main effects (PCV) and how much is genuine
+  # intersectional interaction. Shrink-then-pool -- the random-effects fits run
+  # inside each imputation and Rubin's rules come after, because tau2 is a
+  # complete-data estimand. rma_reml() is written from the mathematics, so this
+  # adds NO package to tar_option_set(); metafor is a test-only oracle.
+  # Design: .claude/plans/2026-07-31-maihda-decomposition-design.md
+  tar_target(
+    gate_meta_one,
+    fit_gate_meta(cate_one$gate),
+    pattern   = map(cate_one),   # cate_one is iteration = "list": one element per branch
+    iteration = "list"
+  ),
+  tar_target(gate_meta_results,
+             pool_gate_meta(gate_meta_one)),
+
   # Report
   tarchetypes::tar_quarto(report,
                           "07_single_treatment.qmd")
