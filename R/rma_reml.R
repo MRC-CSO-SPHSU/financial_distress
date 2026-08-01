@@ -30,10 +30,7 @@
 # REML score: dl/dtau2 = -1/2 tr(P) + 1/2 y'PPy, with the REML projection
 #   P = W - WX (X'WX)^-1 X'W.   Its root is the interior REML estimate.
 .score_reml <- function(tau2, yi, vi, X) {
-  k  <- length(yi)
-  W  <- diag(1 / (vi + tau2), nrow = k)
-  WX <- W %*% X
-  P  <- W - WX %*% solve(crossprod(X, WX)) %*% t(WX)
+  P  <- .P_matrix(yi, vi, X, tau2)
   0.5 * (sum((P %*% yi)^2) - sum(diag(P)))
 }
 
