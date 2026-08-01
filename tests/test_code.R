@@ -752,3 +752,35 @@ test_that("run_mice builds Y and A formulas with the saturated strata interactio
   expect_true(has_term(a_terms, c("sex_dv_base", "race_base", "hiqual_dv_fact_base")))
   expect_false(any(grepl("econ_dist_bin_0", a_terms, fixed = TRUE)))
 })
+
+### does the MAIHDA layer recover the 2 x 2 x 3 design from the stratum labels
+test_that(".gate_factors recovers the intersectional design from strata_label", {
+  source(here::here("R", "fit_gate_meta.R"))
+
+  g <- data.frame(
+    strata_label = c("Female:Non.white:High", "Female:Non.white:Medium",
+                     "Female:Non.white:Low",  "Female:White:High",
+                     "Female:White:Medium",   "Female:White:Low",
+                     "Male:Non.white:High",   "Male:Non.white:Medium",
+                     "Male:Non.white:Low",    "Male:White:High",
+                     "Male:White:Medium",     "Male:White:Low"),
+    estimate = 1:12, se = rep(1, 12)
+  )
+
+  out <- .gate_factors(g)
+  expect_true(all(c("sex", "race", "educ") %in% names(out)))
+  expect_equal(nlevels(out$sex), 2L)
+  expect_equal(nlevels(out$race), 2L)
+  expect_equal(nlevels(out$educ), 3L)
+  expect_equal(nrow(unique(out[c("sex", "race", "educ")])), 12L)
+  expect_equal(ncol(model.matrix(~ sex + race + educ, out)), 5L)
+
+  # A label that does not split into exactly three parts must ERROR, not
+  # silently mislabel cells.
+  bad <- g; bad$strata_label[3] <- "Female:Non.white"
+  expect_error(.gate_factors(bad), "three")
+
+  # So must a set that is not a full 12-cell design.
+  short <- g[1:6, ]
+  expect_error(.gate_factors(short), "12")
+})
