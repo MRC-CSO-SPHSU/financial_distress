@@ -1,11 +1,6 @@
-# Pool DR-learner GATE results across imputations with Rubin's rules.
-# Mirrors pool_tmle(): mice::pool.scalar(n = Inf, k = 1) and 1.96 cutoffs, so
-# the two result tables are read the same way (design 2026-07-30, 4).
-#
-# Stratum membership is computed on completed data and can in principle vary
-# across imputations; between-imputation variance absorbs that, and the
-# n_j_min/n_j_max columns report the range (empirically near-moot: 2 of 21,233
-# rows have any missing stratum variable).
+# Pool DR-learner GATE results across imputations with Rubin's rules. Mirrors pool_tmle()
+# Stratum membership is computed on completed data and can in principle vary across imputations
+
 pool_cate <- function(cate_one) {
   m <- length(cate_one)
 
@@ -49,7 +44,5 @@ pool_cate <- function(cate_one) {
 
   ate <- pool_pair(ate_all$estimate, ate_all$se^2)
 
-  # F statistics do not Rubin-pool; return per-imputation rows and let the
-  # report summarise the median and range.
   list(gate = gate, blp = blp, ate = ate, wald = wald_all, m = m)
 }

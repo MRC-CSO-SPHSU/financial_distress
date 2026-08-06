@@ -36,8 +36,7 @@ message("on_slurm:        ", on_slurm)
 message("plan:            ", paste(class(future::plan()), collapse = "/"))
 message("---------------------------")
 
-# ---- Packages attached to every target's evaluation environment ------------
-# notes: bit64 is needed for data.table to handle 64-bit integers (pipd)
+# ---- Packages attached to every target's evaluation environment ----
 tar_option_set(
   packages = c(
     "data.table",
@@ -50,6 +49,7 @@ tar_option_set(
     "rlang",
     "here",
     "mice",
+    "gFormulaMI",
     "estimatr",
     "car",
     "lmtest",
@@ -66,10 +66,10 @@ tar_option_set(
   seed   = 42
 )
 
-# ---- Source extracted functions (R/) -----------
+# ---- Source extracted functions (R/) ----
 for (f in c(list.files("R", "\\.R$", full.names = TRUE))) source(f)
 
-# ---- Configuration ---------------------------------------------------------
+# --------------------- Configuration -------------------------
 ## mice configs
 mice_m      <- 50
 mice_maxit  <- 15
@@ -77,81 +77,79 @@ seed_random <- 42
 ## gFormulaMI configs
 gform_M <- 50
 ## Outcome scale for the whole pipeline: "MCS" or "PCS"
-outcome_scale <- "MCS"
+outcome_scale <- list(outcome = c("MCS", "PCS"))
 
 
 ## SuperLearner library for the TMLE Q- and g-models. SL.xgboost.tmle is the
 ## custom wrapper in R/sl_wrappers.R (bounded-outcome handling).
 sl_libs <- c("SL.mean", "SL.glm", "SL.glmnet.tmle", "SL.gam", "SL.nnet", "SL.xgboost.tmle")
 
-# ---- DAG -------------------------------------------------------------------
-list(
-  # Data prep: import/clean/preproc, then split into wide + long frames.
-  tar_target(pop_data,
-    if (on_slurm) {
-      import_data(force = FALSE) |> clean_data() |> preproc_data()
-    } else {
-      import_data(force = TRUE) |> clean_data() |> preproc_data()
-    }
-  ),
-  tar_target(wide_data,
-             build_data(pop_data, outcome = outcome_scale)),
+# ------------------------------- DAG -----------------------------------
+# ---- Loop for each outcome scale (MCS, PCS) using static branching ----
+map_pipe <- tar_map(
+  values = outcome_scale,
+  names  = outcome,
 
-  # Wide-format multiple imputation (one mids object, backs the single-point TMLE).
+  tar_target(wide_data,
+             build_data(pop_data, outcome = outcome)),
+
   tar_target(wide_mids,
              run_mice(wide_data,
                       m       = mice_m,
                       maxit   = mice_maxit,
                       seed    = seed_random,
-                      outcome = outcome_scale)),
+                      outcome = outcome)),
 
-  # Single-point TMLE: one fit per imputation (branch over imp_idx), then
-  # Pool all the estimates with Rubin's rules.
-  tar_target(tmle_imp_idx, seq_len(mice_m)),
   tar_target(
     tmle_one,
     fit_tmle_one(
       wide_mids = wide_mids,
       imp_idx   = tmle_imp_idx,
       sl_libs   = sl_libs,
-      outcome   = outcome_scale
+      outcome   = outcome
     ),
     pattern   = map(tmle_imp_idx), # one branch per imputation
     iteration = "list"             # collect the per-imputation tmle fits in a list
   ),
   tar_target(tmle_results,
              pool_tmle(tmle_one)),
-
-  # Sensitivity analysis: g-formula via gFormulaMI (multiple imputation of counterfactual outcomes).
-  # Only estimates marginal means
+  # Sensitivity 1: TMLE with gbound = 0.025
+  tar_target(tmle_sens1,
+             fit_tmle_one(
+               wide_mids = wide_mids,
+               imp_idx   = tmle_imp_idx,
+               sl_libs   = sl_libs,
+               outcome   = outcome,
+               gbound    = 0.025
+             )),
+  tar_target(tmle_sens1_results,
+             pool_tmle(tmle_sens1)),
+  # Sensitivity 2: G-formula with the same estimand as TMLE (factor(regime) + 0)
   tar_target(mi_results,
              run_gformula(
                wide_mids     = wide_mids,
                wide_data_mi  = wide_data,
                M             = gform_M,
-               estimand      = "factor(regime) + 0"
+               estimand      = "factor(regime) + 0",
+               outcome_scale = outcome
              )),
-
-  # Estimating ATE via g-formula MI (multiple imputation of counterfactual outcomes).
+  # Sensitivity 3: G-formula with the estimand of interest (factor(regime))
   tar_target(mi_ate_results,
              run_gformula(
                wide_mids     = wide_mids,
                wide_data_mi  = wide_data,
                M             = gform_M,
-               estimand      = "factor(regime)"
-              )),
-  # Comparison of TMLE and g-formula MI estimates.
+               estimand      = "factor(regime)",
+               outcome_scale = outcome
+             )),
+
   tar_target(comparison,
-             assemble_comparison(tmle_results, 
+             assemble_comparison(tmle_results,
                                  mi_results,
                                  mi_ate_results
             )),
 
-# ---------- Heterogeneous Treatment Effects: DR-learner GATEs ---------------
-  # Per imputation: independently cross-fit DR-learner nuisances, AIPW
-  # pseudo-outcome on the Y(0) - Y(1) scale, saturated projection onto the 12
-  # sex x race x education strata, BLP heterogeneity test. Pooled with Rubin's
-  # rules. Design: .claude/plans/2026-07-30-dr-learner-gate-design.md.
+  # ---------- Heterogeneous Treatment Effects: DR-learner CATEs ---------------
   # Reuses tmle_imp_idx so branching stays aligned with tmle_one.
   tar_target(
     cate_one,
@@ -159,39 +157,31 @@ list(
       wide_mids = wide_mids,
       imp_idx   = tmle_imp_idx,
       sl_libs   = sl_libs,
-      outcome   = outcome_scale
+      outcome   = outcome
     ),
     pattern   = map(tmle_imp_idx), # one branch per imputation
     iteration = "list"             # collect the per-imputation results in a list
   ),
   tar_target(cate_results,
-             pool_cate(cate_one)),
+             pool_cate(cate_one))
+)
 
-  # ---------- MAIHDA decomposition of the GATEs ------------------------------
-  # Second stage on the 12 (GATE_j, SE_j) pairs: how much of the between-stratum
-  # effect variation is additive main effects (PCV) and how much is genuine
-  # intersectional interaction. Shrink-then-pool -- the random-effects fits run
-  # inside each imputation and Rubin's rules come after, because tau2 is a
-  # complete-data estimand. rma_reml() is written from the mathematics, so this
-  # adds NO package to tar_option_set(); metafor is a test-only oracle.
-  # Design: .claude/plans/2026-07-31-maihda-decomposition-design.md
-  tar_target(
-    gate_meta_one,
-    fit_gate_meta(cate_one$gate),
-    pattern   = map(cate_one),   # cate_one is iteration = "list": one element per branch
-    iteration = "list",
-    # This fit is milliseconds of work (REML on 12 numbers), but each branch
-    # still spawns its own SLURM job under the global plan's 24 GB / 6 h
-    # reservation -- wildly oversized for it. Override to something a cold
-    # worker actually needs.
-    resources = tar_resources(
-      future = tar_resources_future(resources = list(memory = 2 * 1024, walltime = 900))
-    )
+# --- DAG ---
+list(
+  # Data prep: import/clean/preproc
+  tar_target(pop_data,
+    if (on_slurm) {
+      import_data(force = FALSE) |> clean_data() |> preproc_data()
+    } else {
+      import_data(force = TRUE) |> clean_data() |> preproc_data()
+    }
   ),
-  tar_target(gate_meta_results,
-             pool_gate_meta(gate_meta_one)),
 
-  # Report
-  tarchetypes::tar_quarto(report,
-                          "07_single_treatment.qmd")
+  # Imputation index, shared by both outcome scales
+  tar_target(tmle_imp_idx, seq_len(mice_m)),
+
+  map_pipe,
+
+  # Single report covering both outcomes
+  tarchetypes::tar_quarto(report, "07_single_treatment.qmd")
 )

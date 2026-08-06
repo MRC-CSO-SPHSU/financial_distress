@@ -39,14 +39,11 @@ build_data <- function(data, pre_wave = 2, target_wave = 3,
 
   final_data <- int_data_wide[!pidp %in% bad_pidps]
 
-  # The lag is taken before this point, so econ_dist_bin_lagged is still integer;
-  # factor both so mice/gFormulaMI treat them as the same binary node type.
+  # The lag is taken before this point, so econ_dist_bin_lagged is still integer
+  # Factoring both so mice/gFormulaMI treat them as the same binary node type.
   final_data <- final_data |>
     mutate(across(c(econ_dist_bin, econ_dist_bin_lagged), as.factor)) |>
-    # Formula-safe factor levels before reshaping: run_mice() puts
-    # sex x race x hiqual into a mice formula (design 8.5), and race_base's
-    # "Non-white" / dnc_lagged's "2+" would not survive the re-parse.
-    # econ_dist_bin's "0"/"1" are numeric-coded and left untouched by design.
+    # Formula-safe factor levels before reshaping
     sanitize_factor_levels()
 
   if (outcome == "MCS") {

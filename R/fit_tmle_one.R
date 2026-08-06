@@ -1,5 +1,5 @@
 # Single-point TMLE (via the tmle package) for one imputed database.
-fit_tmle_one <- function(wide_mids, imp_idx, sl_libs, outcome) {
+fit_tmle_one <- function(wide_mids, imp_idx, sl_libs, outcome, gbound = NULL) {
   # Assign custom SL wrappers to globalenv() so SuperLearner resolves them on each batchtools worker.
   assign("SL.xgboost.tmle", SL.xgboost.tmle, envir = globalenv())
   assign("SL.glmnet.tmle",  SL.glmnet.tmle,  envir = globalenv())
@@ -21,7 +21,8 @@ fit_tmle_one <- function(wide_mids, imp_idx, sl_libs, outcome) {
     g.SL.library = sl_libs,
     cvQinit      = TRUE,
     V.Q          = 10,
-    V.g          = 10, 
+    V.g          = 10,
+    gbound       = gbound, 
     family       = "gaussian", # for continuous outcomes
     fluctuation = "logistic" # to bound the outcome to [0,1] for the logistic fluctuation step
   )

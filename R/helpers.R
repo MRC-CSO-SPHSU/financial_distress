@@ -1,13 +1,4 @@
-#######################################################################################################
-# PROJECT: Financial distress and health outcomes. A LTMLE analysis of the UKHLS
-# DESCRIPTION: Helpers for data manipulation and formatting
-#######################################################################################################
-# COUNTRY: UK
-# DATA: UKHLS EUL version - UKDA-6614-stata [to wave 0] and WAS EUL version - UKDA-7215-stata [to wave 7]
-# AUTHORS:	Darwin del Castillo
-# LAST UPDATE: 11 May 2026
-#######################################################################################################
-
+# ---- Helpers for analysis ----
 # reshaping dataset from long to wide format, by adding attributes to each variable group
 make_wide <- function(df, id_col, time_col, base_cols, outcome, ..., static = FALSE, waves = NULL) {
   
@@ -94,11 +85,8 @@ make_counterfactual_matrix <- function(return_vals) {
   nodes <- c(colnames(return_vals), "regime")
   dimnames(p_mat) <- list(nodes, nodes)
 
-  # time-invariant confounders are lower-triangular among themselves: each is
-  # predicted by every baseline variable preceding it in the visit (column) order.
-  # Without this they carry all-zero predictor rows and gFormulaMI draws each one
-  # from its own marginal in the synthetic block, destroying their joint
-  # distribution. The chain rule over the column order reproduces that joint.
+  # time-invariant confounders are lower-triangular among themselves
+  # allow gFormulaMI to draw these from their observed values instead of the intercept
   base_ordered <- intersect(nodes, baseline_vars)
   for (i in seq_along(base_ordered)[-1]) {
     p_mat[base_ordered[i], base_ordered[seq_len(i - 1L)]] <- 1
@@ -129,11 +117,7 @@ make_counterfactual_matrix <- function(return_vals) {
     }
   }
 
-  # time-varying covariates that are neither the exposure, the outcome, nor a lag
-  # (age_dv_0, gor_dv_fact_0, econ_emp_bin_fact_0, log_income_0). With a single
-  # timepoint the loops below never fire, so wire them up explicitly — otherwise
-  # they get all-zero predictor rows and drop out of both the exposure and the
-  # outcome model, which the point-treatment TMLE (fit_tmle_one) adjusts for.
+  # time-varying covariates that are neither the exposure, the outcome, nor a lag. 
   covar_vars <- setdiff(intermediate_vars, c(exposure, outcome_var, outcome_baseline))
 
   if (time_points <= 1 && length(covar_vars) > 0) {
@@ -187,34 +171,12 @@ make_counterfactual_matrix <- function(return_vals) {
 # mice's `formulas` mode (R/run_mice.R) builds design-matrix column names from
 # factor level labels and re-parses them as formula terms, so a level containing
 # a space, hyphen or "+" ("Non-white", "No benefits", "2+") either fails to parse
-# or yields a mangled term. Same hazard the 2l.pmm samplers have in
-# run_mice_long().
+# or yields a mangled term.
 #
 # Rewrites a variable's levels ONLY when some level contains a character outside
-# [A-Za-z0-9._]. That deliberately leaves numeric-coded factors alone: a blind
-# make.names() pass turns econ_dist_bin's "0"/"1" into "X0"/"X1", and the
-# as.integer(as.character(A)) in fit_tmle_one()/estimate_cate() would then return
-# NA for every row with nothing but a coercion warning.
+# [A-Za-z0-9._].
 #
-# Implementation note: levels are remapped through make.names() and the factor
-# is then rebuilt from the mapped character values rather than via
-# `factor(x, levels = old, labels = new)`. The latter keeps the *old* ordinal
-# level order (e.g. "2+" sorts before letters, so "dnc_lagged"'s old order is
-# "2+","One","Zero"), which stops matching the alphabetical order the new,
-# sanitized labels would naturally sort into ("One","X2.","Zero"). Rebuilding
-# from the mapped values lets factor()'s default sort settle the new order, and
-# per-row values still line up 1:1 with the original either way.
-#
-# `levels =` is passed explicitly as `sort(unique(new_labels))` -- i.e.
-# derived from *every originally-defined level*, not from the rows actually
-# present in `df`. Without it, a bare `factor(new_labels[...])` derives its
-# level set from the observed values only, so a level with zero rows in this
-# particular frame (or every level, on a zero-row frame) silently vanishes
-# instead of being relabelled and kept -- breaking the "same object with
-# levels *replaced*" contract. `ordered = is.ordered(df[[v]])` carries
-# orderedness through too, since a bare `factor()` call always returns
-# unordered; no current hostile column is ordered, but this keeps the helper
-# honest if one becomes so (e.g. an ordinal factor with a hostile label).
+
 sanitize_factor_levels <- function(df, skip = character()) {
   hostile <- "[^A-Za-z0-9._]"
 

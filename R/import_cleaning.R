@@ -547,8 +547,8 @@ preproc_data <- function(DT) {
     is.na(dnc), NA_character_,
     dnc == 0L,  "Zero",
     dnc == 1L,  "One",
-    default    = "2+"
-  ), levels = c("Zero", "One", "2+"))]
+    default    = "Two or more"
+  ), levels = c("Zero", "One", "Two or more"))]
   
   #--- Transforming econ_emp_bin into factor variable ----
   pop_data[, econ_emp_bin_fact := as.factor(econ_emp_bin)]

@@ -1,21 +1,18 @@
 # Congeniality guard for the imputation model.
-#
-# The DR-learner GATE arm's entire output is between-stratum effect contrasts, so
-# the imputation model must carry the exposure x strata interaction (design 8.4).
-# If mice drops one of those terms for collinearity it records the fact in
-# loggedEvents and carries on silently -- which is precisely the attenuation this
-# change exists to prevent. So: stop(), not message().
+# The reason why this function exist is related to the interaction term introduced
+# to preserve congeniality in the imputation model. This is explained in the next function.
+# If mice drops one of the interaction terms for collinearity it records the fact in
+# loggedEvents and carries on silently, which is precisely the attenuation this
+# change exists to prevent.
+
 assert_congenial_terms <- function(mids, a_col = "econ_dist_bin_0") {
   le <- mids$loggedEvents
   if (is.null(le) || !is.data.frame(le) || nrow(le) == 0L) return(invisible(TRUE))
   if (!"out" %in% names(le)) return(invisible(TRUE))
 
-  # mice mangles interaction terms into design-matrix column names
-  # (e.g. "econ_dist_bin_01:race_baseNon.white"), so match on the exposure name
-  # appearing anywhere in a term that also contains a ":".
   is_interaction <- grepl(a_col, le$out, fixed = TRUE) &
                     grepl(":",   le$out, fixed = TRUE)
-
+  
   if (any(is_interaction)) {
     stop("run_mice: congeniality broken -- mice dropped ", sum(is_interaction),
          " exposure-interaction term(s) from the imputation model:\n",
@@ -66,36 +63,29 @@ run_mice <- function(wide_data, m = 10, maxit = 10, seed = 20260522,
   method_list[matched] <- methods_by_group[group[matched]]
 
   # ---- Congenial imputation model (design 8) -------------------------------
-  # The analysis projects an AIPW score onto S = sex x race x hiqual saturated,
-  # so the imputation model must be saturated in S too, otherwise imputed
-  # records are drawn under effect homogeneity and GATE contrasts attenuate.
-  #
-  # formulas mode (not predictorMatrix mode) because mice rebuilds the design
-  # matrix from the CURRENT imputations each iteration: the interaction stays
-  # self-consistent even though sex/race/hiqual are themselves imputed, with no
-  # passive-imputation strata_id column to drift out of agreement.
+  # Downstream analyses let the effect differ by levels of S = sex x race x hiqual,
+  # so the imputation model must include S too, otherwise imputed values are drawn 
+  # under effect homogeneity and bias towards the null GATE estimates.
+
   y_col <- if (outcome == "MCS") "sf12mcs_dv_0" else "sf12pcs_dv_0"  # wave-3 outcome only
   a_col <- "econ_dist_bin_0"
   S     <- "sex_dv_base * race_base * hiqual_dv_fact_base"
 
   stopifnot(all(c(y_col, a_col) %in% names(wide_data)))
 
-  # pred_mat exists only to seed make.formulas(); it is NOT passed to mice().
+  # pred_mat exist only as input of make.formulas(), which creates formulas for imputing all DT vars
   # Supplying both would leave predictorMatrix silently inert.
   pred_mat  <- mice::make.predictorMatrix(wide_data)
-  form_list <- mice::make.formulas(wide_data, predictorMatrix = pred_mat)
+  form_list <- mice::make.formulas(wide_data, predictorMatrix = pred_mat) # Creates the formula for all variables in the DT
 
-  # Y model: saturated A x S -- the term that carries the estimand.
+  # Y model: saturated A x S -- the outcome that carries the interaction estimand.
   form_list[[y_col]] <- stats::update.formula(
     form_list[[y_col]], stats::reformulate(c(".", paste(a_col, "*", S)))
   )
-  # A model: saturated S -- lets exposure prevalence vary freely by cell
-  # (measured 7.2%-47.8% across the 12 strata).
+  # A model: saturated only in S
   form_list[[a_col]] <- stats::update.formula(
     form_list[[a_col]], stats::reformulate(c(".", S))
   )
-  # Not touched: sf12mcs_dv_base. Pre-exposure, so it carries no part of the
-  # estimand even though it is also imputed by pmm.
 
   mids <-  mice::mice(
            data            = wide_data,

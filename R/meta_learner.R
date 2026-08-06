@@ -1,20 +1,15 @@
-# DR-learner GATEs over sex x race x education -- score primitives.
-# Design: .claude/plans/2026-07-30-dr-learner-gate-design.md (2, 3.6, 3.7).
+# DR-learner CATEs over sex x race x education -- score primitives.
 # estimate_cate() below (added with the full rewrite) consumes these.
 
-# Positivity bound. Matches tmle's default gbound so psi is comparable to
-# tmle_results (design 3.7).
+# Bound parameter for clever variable (propensity) positivity.
 CATE_EPS <- 0.025
 
+# Function to apply the bound over IPTW scores
 bound_propensity <- function(g_hat, eps = CATE_EPS) {
   pmin(pmax(g_hat, eps), 1 - eps)
 }
 
-# Negated AIPW / DR-learner score, on the Y(0) - Y(1) scale (design 2):
-# Y(0) is the no-distress potential outcome, so positive psi = MCS points LOST
-# to financial distress. THE SIGN IS DELIBERATE and this is the single flip
-# site; estimate_cate() undoes it once (tau <- -fitted) for the BLP test.
-# Do not "correct" it.
+# Function to compute the doubly-robust pseudo-outcome for the DR-learner CATE arm.
 dr_pseudo_outcome <- function(A, Y, mu0_hat, mu1_hat, g_hat) {
   stopifnot(length(A) == length(Y),
             length(mu0_hat) == length(Y),
@@ -33,12 +28,12 @@ dr_pseudo_outcome <- function(A, Y, mu0_hat, mu1_hat, g_hat) {
      A      /      g_hat  * (Y - mu1_hat)
 }
 
-# Out-of-fold ensemble predictions from a SuperLearner fit's $Z matrix, with
-# the design-3.6 hard assertions. $Z rows follow the *input* row order and
-# carry no dimnames (verified against SuperLearner 2.0.40); a silent
-# misalignment here corrupts every number downstream without erroring, hence
-# stop() rather than tests alone. $SL.predict is the full-data refit scoring
-# its own training rows -- never use it here.
+# Out-of-fold ensemble predictions from a SuperLearner fit. $Z holds the
+# cross-validated library predictions and $coef the ensemble weights, 
+# How the two combine is method-specific: method.NNLS (gaussian fits) is the plain Z %*% coef, 
+# whereas method.NNloglik (binomial propensity) combines on the logit
+# scale, plogis(trimLogit(Z) %*% coef).
+
 sl_oof_predictions <- function(fit, n_expected, label) {
   if (is.null(fit$Z) || nrow(fit$Z) != n_expected) {
     stop("estimate_cate [", label, "]: nrow($Z) = ",
@@ -49,51 +44,49 @@ sl_oof_predictions <- function(fit, n_expected, label) {
     stop("estimate_cate [", label, "]: length($coef) = ", length(fit$coef),
          " != ncol($Z) = ", ncol(fit$Z), ".")
   }
-  oof <- drop(fit$Z %*% fit$coef)
+  if (all(fit$coef == 0)) {
+    stop("estimate_cate [", label, "]: every metalearner coefficient is zero; ",
+         "computePred() would return all-zero predictions.")
+  }
+  oof <- drop(fit$method$computePred(fit$Z, fit$coef, control = fit$control))
   if (anyNA(oof)) {
     stop("estimate_cate [", label, "]: out-of-fold ensemble prediction contains NA.")
   }
   oof
 }
 
-# DR-learner GATEs over sex x race x education, one imputed dataset
-# (design 2026-07-30, 3). Pooled across imputations by pool_cate().
+# DR-learner CATEs over sex x race x education, one imputed dataset. 
+# Pooled across imputations by pool_cate().
+
 estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
-  # imp is documented as int in every returned tibble (gate/blp/ate/wald); coerce
-  # once here rather than at each tibble::tibble() call site.
+
   imp_idx <- as.integer(imp_idx)
 
   # SuperLearner resolves learner names by string against globalenv() on fresh
-  # batchtools workers -- same shim as fit_tmle_one(). Do not clean up.
+  # batchtools workers 
+
   assign("SL.xgboost.tmle", SL.xgboost.tmle, envir = globalenv())
   assign("SL.glmnet.tmle",  SL.glmnet.tmle,  envir = globalenv())
 
-  ## -- 3.1 complete the data -------------------------------------------------
+  ## -- 3.1 complete data call -----------------------------------------------
   dat <- mice::complete(wide_mids, action = imp_idx)
 
-  ## -- 3.2 confounders: byte-identical to the marginal TMLE's ---------------
+  ## -- 3.2 confounders helper call (see helpers.R) ---------------
   W <- confounders(outcome)
 
   ## -- 3.3 numeric design matrix (SL.glmnet/SL.xgboost cannot take factors) --
   Wmat <- as.data.frame(model.matrix(~ ., dat[W])[, -1])
   names(Wmat) <- make.names(names(Wmat), unique = TRUE)
-  # model.matrix()'s default na.action = na.omit silently DROPS rows with a
-  # residual NA confounder instead of erroring, which would desynchronize
-  # Wmat from dat/A/Y (every row-index alignment below assumes they match 1:1).
+
   stopifnot(nrow(Wmat) == nrow(dat))
 
   ## -- 3.4 treatment and outcome ---------------------------------------------
-  A <- as.integer(as.character(dat$econ_dist_bin_0))   # factor, build_data.R:45
+  A <- as.integer(as.character(dat$econ_dist_bin_0))  # refactoring as it needs to be an integer for SuperLearner
   Y <- dat[[if (outcome == "MCS") "sf12mcs_dv_0" else "sf12pcs_dv_0"]]
   n <- nrow(dat)
 
-  ## -- 3.5 nuisances: T-style, project sl_libs -------------------------------
-  # SuperLearner must be *attached* (library(SuperLearner)), not just
-  # namespace-qualified: its internal wrapper/screener resolution reaches for
-  # bare symbols (e.g. the "All" screening algorithm) that are only found on
-  # the search path. `SuperLearner::SuperLearner(...)` alone is not enough on
-  # a fresh worker -- Task 7 must list `SuperLearner` in
-  # `tar_option_set(packages = ...)`, which attaches it.
+  ## -- 3.5 main parameters for outcome regression and propensity score modeling --------
+
   mu0 <- SuperLearner::SuperLearner(
     Y = Y[A == 0], X = Wmat[A == 0, , drop = FALSE], family = gaussian(),
     SL.library = sl_libs, cvControl = list(V = 10))
@@ -106,28 +99,22 @@ estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
     cvControl = list(V = 10))
 
   ## -- 3.6 honest predictions without outer folds ----------------------------
-  # Own-arm rows: $Z out-of-fold ensemble (hard-asserted). Other-arm rows:
-  # predict() is honest because the fit never saw them. $SL.predict would be
-  # the full-data refit scoring its own training rows -- never use it.
+
   mu0_hat <- numeric(n)
   mu1_hat <- numeric(n)
   mu0_hat[A == 0] <- sl_oof_predictions(mu0, sum(A == 0), "mu0")
   mu0_hat[A == 1] <- predict(mu0, newdata = Wmat[A == 1, , drop = FALSE])$pred
   mu1_hat[A == 1] <- sl_oof_predictions(mu1, sum(A == 1), "mu1")
   mu1_hat[A == 0] <- predict(mu1, newdata = Wmat[A == 0, , drop = FALSE])$pred
-  # Own-arm NAs are already hard-asserted inside sl_oof_predictions(); this
-  # additionally covers the cross-arm predict() calls above, which have no
-  # such guard, and Y itself (a residual outcome NA would silently propagate
-  # the same way -- lm_robust()/lm() below drop NA rows without erroring,
-  # desynchronizing $fitted.values / tau from Y/A/g_hat -- see Important #2).
+
   stopifnot(!anyNA(mu0_hat), !anyNA(mu1_hat), !anyNA(Y))
   g_hat <- sl_oof_predictions(gm, n, "g")
 
-  ## -- 3.7 positivity bound and pseudo-outcome (THE sign-flip site) ----------
+  ## -- 3.7 positivity bound and pseudo-outcome --
   g_hat <- bound_propensity(g_hat)
   psi   <- dr_pseudo_outcome(A, Y, mu0_hat, mu1_hat, g_hat)
 
-  ## -- 3.8 strata and saturated projection -----------------------------------
+  ## -- 3.8 strata creation -----------------------------------
   dat_s   <- make_strata(dat)
   proj_df <- data.frame(psi          = psi,
                         strata_id    = dat_s$strata_id,
@@ -145,7 +132,7 @@ estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
                           p   = lh[2, "Pr(>F)"])
 
   ## -- 3.9 BLP global heterogeneity test (conventional Y(1)-Y(0) scale) ------
-  m_hat <- g_hat * mu1_hat + (1 - g_hat) * mu0_hat  # E[Y|W]; no 4th SL fit
+  m_hat <- g_hat * mu1_hat + (1 - g_hat) * mu0_hat  
   tau   <- -proj$fitted.values                      # undo the 3.7 flip, once
   blp_fit <- lm(I(Y - m_hat) ~ 0 + I(A - g_hat) +
                   I((tau - mean(tau)) * (A - g_hat)))
@@ -189,11 +176,11 @@ estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
          " -- cell ids disagree between coef names and make_strata().")
   }
 
-  ## -- 3.11 return ------------------------------------------------------------
-  # Scale note: ate$estimate is mean(psi), the Y(0)-Y(1) scale (3.7);
+  ## -- 3.11 output ------------------------------------------------------------
+  # Scale note: ate$estimate is mean(psi), the Y(0)-Y(1) scale;
   # blp$estimate[blp$term == "beta1_ate"] is the same population ATE but on
-  # the conventional Y(1)-Y(0) scale (3.9, tau un-flipped). The two therefore
-  # always print with opposite signs -- this is by design, not a bug.
+  # the conventional Y(1)-Y(0) scale. The two therefore always print with opposite signs. 
+  # This is by design, not a bug.
   list(
     gate = gate,
     blp  = blp,

@@ -1,11 +1,13 @@
 # g-formula MI predictor matrix and imputation of counterfactual outcomes
 
-run_gformula <- function(wide_mids, wide_data_mi, estimand, M = 50) {
+run_gformula <- function(wide_mids, wide_data_mi, estimand, outcome_scale, M = 50) {
   estimand <- as.character(estimand)
 
   regimes <- list(0,1)
 
   predictor_matrix <- make_counterfactual_matrix(wide_data_mi)
+
+  outcome_final <- if (outcome_scale == "MCS") "sf12mcs_dv_0" else "sf12pcs_dv_0"
 
   imps <- gFormulaMI::gFormulaImpute(
     data             = wide_mids,
@@ -17,7 +19,7 @@ run_gformula <- function(wide_mids, wide_data_mi, estimand, M = 50) {
   )
 
   fits <- imps %$%
-    lm(as.formula(paste("sf12mcs_dv_0 ~", estimand)))
+    lm(as.formula(paste(outcome_final, "~", estimand)))
 
   outvals <- gFormulaMI::syntheticPool(fits)
 
