@@ -81,7 +81,7 @@ outcome_scale <- list(outcome = c("MCS", "PCS"))
 
 
 ## SuperLearner library for the TMLE Q- and g-models. SL.xgboost.tmle is the
-## custom wrapper in R/sl_wrappers.R (bounded-outcome handling).
+## custom wrapper in R/sl_wrappers.R (re-scaled outcome (0,1) handling).
 sl_libs <- c("SL.mean", "SL.glm", "SL.glmnet.tmle", "SL.gam", "SL.nnet", "SL.xgboost.tmle")
 
 # ------------------------------- DAG -----------------------------------
@@ -121,7 +121,10 @@ map_pipe <- tar_map(
                sl_libs   = sl_libs,
                outcome   = outcome,
                gbound    = 0.025
-             )),
+             ),
+             pattern   = map(tmle_imp_idx), # one branch per imputation
+             iteration = "list"             # collect the per-imputation tmle fits in a list
+  ),
   tar_target(tmle_sens1_results,
              pool_tmle(tmle_sens1)),
   # Sensitivity 2: G-formula with the same estimand as TMLE (factor(regime) + 0)

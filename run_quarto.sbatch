@@ -33,7 +33,7 @@ cd "${SLURM_SUBMIT_DIR}"
 
 # tar_make_future() dispatches each worker target as its own SLURM job via future.batchtools
 # The final tar_quarto(report) target renders 06_full_models.qmd.
-Rscript -e 'targets::tar_make_future(workers = 8L)' 2>&1 | tee "targets_make_${SLURM_JOB_ID}.log"
+Rscript -e 'targets::tar_make_future(workers = 16L)' 2>&1 | tee "targets_make_${SLURM_JOB_ID}.log"
 status=${PIPESTATUS[0]}
 echo "tar_make_future exit status: $status"
 
