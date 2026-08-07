@@ -126,6 +126,11 @@ cate_results <- list(
   PCS = tar_read(cate_results_PCS, store = tar_store)
 )
 
+tmle_sens1_results <- list(
+  MCS = tar_read(tmle_sens1_results_MCS, store = tar_store),
+  PCS = tar_read(tmle_sens1_results_PCS, store = tar_store)
+)
+
 # Stack a per-scale list into one tibble. 
 
 bind_scales <- function(x, f = identity) {
