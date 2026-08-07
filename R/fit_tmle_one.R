@@ -1,5 +1,12 @@
 # Single-point TMLE (via the tmle package) for one imputed database.
 fit_tmle_one <- function(wide_mids, imp_idx, sl_libs, outcome, gbound = NULL) {
+  # One imputation per call. mice::complete() accepts a vector for `action` and
+  # silently returns the imputations *stacked*, so an unbranched target would
+  # fit a single TMLE on m * n rows instead of erroring. Fail fast instead.
+  stopifnot(
+    "imp_idx must be a single imputation index -- is the target missing pattern = map(tmle_imp_idx)?" =
+      length(imp_idx) == 1L
+  )
   # Assign custom SL wrappers to globalenv() so SuperLearner resolves them on each batchtools worker.
   assign("SL.xgboost.tmle", SL.xgboost.tmle, envir = globalenv())
   assign("SL.glmnet.tmle",  SL.glmnet.tmle,  envir = globalenv())
