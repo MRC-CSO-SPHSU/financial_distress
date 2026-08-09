@@ -71,11 +71,11 @@ for (f in c(list.files("R", "\\.R$", full.names = TRUE))) source(f)
 
 # --------------------- Configuration -------------------------
 ## mice configs
-mice_m      <- 75
-mice_maxit  <- 20
+mice_m      <- 50
+mice_maxit  <- 15
 seed_random <- 42
 ## gFormulaMI configs
-gform_M <- 75
+gform_M <- 50
 ## Outcome scale for the whole pipeline: "MCS" or "PCS"
 outcome_scale <- list(outcome = c("MCS", "PCS"))
 
