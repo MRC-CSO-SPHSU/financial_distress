@@ -218,7 +218,7 @@ results_comparison_marginal <- marginals |>
                       name = "Intervention",
                       guide = "legend") +
   labs(x = "Mean SF-12 score (95% CI)", y = NULL) +
-  facet_grid(method ~ scale, scales = "free_x") +
+  facet_grid(method ~ scale, scales = "fixed") +
   theme(panel.grid.minor = element_blank())
 
 print(results_comparison_marginal)
@@ -264,7 +264,7 @@ results_comparison_ate <- ate |>
                       guide = "legend") +
   labs(x = "Causal mean difference in SF-12 score (95% CI)
   (Reference: unexposed)", y = NULL) +
-  facet_grid(method ~ scale, scales = "free_x") +
+  facet_grid(method ~ scale, scales = "fixed") +
   theme(panel.grid.minor = element_blank())
 
 print(results_comparison_ate)
