@@ -170,7 +170,22 @@ map_pipe <- tar_map(
     iteration = "list"             # collect the per-imputation results in a list
   ),
   tar_target(cate_results,
-             pool_cate(cate_one))
+             pool_cate(cate_one)),
+  # Sensitivity: DR-learner CATEs with gbound = 0.025
+  tar_target(
+    cate_sens1_one,
+    estimate_cate(
+      wide_mids = wide_mids,
+      imp_idx   = tmle_imp_idx,
+      sl_libs   = sl_libs,
+      outcome   = outcome,
+      gbound    = 0.025
+    ),
+    pattern   = map(tmle_imp_idx), # one branch per imputation
+    iteration = "list"             # collect the per-imputation results in a list
+  ),
+  tar_target(cate_sens1_results,
+             pool_cate(cate_sens1_one))
 )
 
 # --- DAG ---
