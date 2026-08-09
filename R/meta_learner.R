@@ -66,7 +66,7 @@ estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
   # batchtools workers 
 
   assign("SL.xgboost.tmle", SL.xgboost.tmle, envir = globalenv())
-  assign("SL.glmnet.tmle",  SL.glmnet.tmle,  envir = globalenv())
+#  assign("SL.glmnet.tmle",  SL.glmnet.tmle,  envir = globalenv())
 
   ## -- 3.1 complete data call -----------------------------------------------
   dat <- mice::complete(wide_mids, action = imp_idx)
