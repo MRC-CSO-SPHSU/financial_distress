@@ -76,6 +76,7 @@ mice_maxit  <- 15
 seed_random <- 42
 ## gFormulaMI configs
 gform_M <- 50
+cate_gbound <- 5/sqrt(21233)/log(21233) # same as the TMLE gbound which scales with n 
 ## Outcome scale for the whole pipeline: "MCS" or "PCS"
 outcome_scale <- list(outcome = c("MCS", "PCS"))
 
@@ -160,7 +161,8 @@ map_pipe <- tar_map(
       wide_mids = wide_mids,
       imp_idx   = tmle_imp_idx,
       sl_libs   = sl_libs,
-      outcome   = outcome
+      outcome   = outcome,
+      gbound    = cate_gbound
     ),
     pattern   = map(tmle_imp_idx), # one branch per imputation
     iteration = "list"             # collect the per-imputation results in a list

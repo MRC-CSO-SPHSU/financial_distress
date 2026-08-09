@@ -1,8 +1,9 @@
 # DR-learner CATEs over sex x race x education -- score primitives.
 # estimate_cate() below (added with the full rewrite) consumes these.
 
-# Bound parameter for clever variable (propensity) positivity.
-CATE_EPS <- 0.025
+# Default bound for clever variable (propensity) positivity. Overridable per run
+# through the `gbound` argument of estimate_cate() (set from _targets.R).
+CATE_EPS <- 0.01
 
 # Function to apply the bound over IPTW scores
 bound_propensity <- function(g_hat, eps = CATE_EPS) {
@@ -58,9 +59,18 @@ sl_oof_predictions <- function(fit, n_expected, label) {
 # DR-learner CATEs over sex x race x education, one imputed dataset. 
 # Pooled across imputations by pool_cate().
 
-estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
+estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome,
+                          gbound = CATE_EPS) {
 
   imp_idx <- as.integer(imp_idx)
+
+  # Symmetric bound: g_hat is clipped to [gbound, 1 - gbound], so anything at or
+  # above 0.5 would collapse every propensity onto a single point.
+  stopifnot(
+    "gbound must be a single finite number in (0, 0.5)" =
+      is.numeric(gbound) && length(gbound) == 1L &&
+      is.finite(gbound) && gbound > 0 && gbound < 0.5
+  )
 
   # SuperLearner resolves learner names by string against globalenv() on fresh
   # batchtools workers 
@@ -111,7 +121,7 @@ estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
   g_hat <- sl_oof_predictions(gm, n, "g")
 
   ## -- 3.7 positivity bound and pseudo-outcome --
-  g_hat <- bound_propensity(g_hat)
+  g_hat <- bound_propensity(g_hat, eps = gbound)
   psi   <- dr_pseudo_outcome(A, Y, mu0_hat, mu1_hat, g_hat)
 
   ## -- 3.8 strata creation -----------------------------------
@@ -155,7 +165,7 @@ estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome) {
       pct_exposed      = 100 * mean(A),
       min_g            = min(g),
       median_g         = stats::median(g),
-      share_g_at_bound = mean(g <= CATE_EPS | g >= 1 - CATE_EPS),
+      share_g_at_bound = mean(g <= gbound | g >= 1 - gbound),
       .groups          = "drop"
     ) |>
     dplyr::mutate(strata_id = as.character(strata_id))
