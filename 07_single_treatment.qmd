@@ -398,7 +398,7 @@ cate_caterpillar <- gate |>
   geom_pointrange(aes(xmin = ll, xmax = ul), size = 0.4) +
   labs(x = "SF-12 points lost to financial distress (95% CI)",
        y = NULL) +
-  facet_wrap(~scale, scales = "free_x") +
+  facet_wrap(~scale, scales = "fixed") +
   theme(panel.grid.minor = element_blank())
 
 print(cate_caterpillar)
