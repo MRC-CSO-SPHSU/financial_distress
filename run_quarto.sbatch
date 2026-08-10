@@ -3,8 +3,8 @@
 #SBATCH --time=24:00:00
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=96G
-#SBATCH --output=targets_%j.out
-#SBATCH --error=targets_%j.err
+#SBATCH --output=logs/targets_%j.out
+#SBATCH --error=logs/targets_%j.err
 #SBATCH --account=none
 #SBATCH --mail-type=BEGIN,FAIL,END
 #SBATCH --mail-user=darwin.delcastillofernandez@glasgow.ac.uk
