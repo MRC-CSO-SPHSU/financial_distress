@@ -88,7 +88,7 @@ run_mice <- function(wide_data, m = 10, maxit = 10, seed = 20260522,
   form_list[[y_col]] <- stats::update.formula(
     form_list[[y_col]], stats::reformulate(c(".", paste(a_col, "*", S)))
   )
-  # A model: saturated in S and A
+  # A model: saturated in S and Y
   form_list[[a_col]] <- stats::update.formula(
     form_list[[a_col]], stats::reformulate(c(".", paste(y_col, "*", S)))
   )
