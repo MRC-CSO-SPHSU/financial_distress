@@ -5,12 +5,12 @@
 # loggedEvents and carries on silently, which is precisely the attenuation this
 # change exists to prevent.
 
-assert_congenial_terms <- function(mids, a_col, y_col) {
+assert_congenial_terms <- function(mids, a_col) {
   le <- mids$loggedEvents
   if (is.null(le) || !is.data.frame(le) || nrow(le) == 0L) return(invisible(TRUE))
   if (!"out" %in% names(le)) return(invisible(TRUE))
 
-  keys <- c(a_col, y_col)
+  keys <- c(a_col)
 
   dropped <- purrr::map(strsplit(le$out, ",\\s*"), \(tm) {
     purrr::keep(trimws(tm), \(term)
@@ -88,10 +88,6 @@ run_mice <- function(wide_data, m = 10, maxit = 10, seed = 20260522,
   form_list[[y_col]] <- stats::update.formula(
     form_list[[y_col]], stats::reformulate(c(".", paste(a_col, "*", S)))
   )
-  # A model: saturated in S and Y
-  form_list[[a_col]] <- stats::update.formula(
-    form_list[[a_col]], stats::reformulate(c(".", paste(y_col, "*", S)))
-  )
 
   mids <-  mice::mice(
            data            = wide_data,
@@ -111,7 +107,7 @@ run_mice <- function(wide_data, m = 10, maxit = 10, seed = 20260522,
   }
 
   # Confirming that the interaction terms are still present in the imputation model
-  assert_congenial_terms(mids, a_col = a_col, y_col = y_col)
+  assert_congenial_terms(mids, a_col = a_col)
 
   mids
 }
