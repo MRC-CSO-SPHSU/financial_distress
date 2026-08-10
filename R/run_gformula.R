@@ -9,12 +9,15 @@ run_gformula <- function(wide_mids, wide_data_mi, estimand, outcome_scale, M = 5
 
   outcome_final <- if (outcome_scale == "MCS") "sf12mcs_dv_0" else "sf12pcs_dv_0"
 
+  method <- make_counterfactual_method(wide_data_mi)
+
   imps <- gFormulaMI::gFormulaImpute(
     data             = wide_mids,
     M                = M,
     trtVars          = c("econ_dist_bin_0"),
     trtRegimes       = regimes,
     predictorMatrix  = predictor_matrix,
+    method           = method,
     silent           = TRUE
   )
 
@@ -38,15 +41,6 @@ run_gformula <- function(wide_mids, wide_data_mi, estimand, outcome_scale, M = 5
       mi_ul     = `95% CI U`
     ) |>
     dplyr::bind_cols(regimes_1)
-
-  # Detect loggedEvents and report them in the build log.
-  le <- imps$loggedEvents
-  if (is.null(le) || nrow(le) == 0) {
-    message("run_gformula: no logged events.")
-  } else {
-    message("run_gformula: ", nrow(le), " logged event(s) during imputation:")
-    message(paste(utils::capture.output(print(le)), collapse = "\n"))
-  }
 
   return(out)
 }
