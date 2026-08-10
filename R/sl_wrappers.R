@@ -10,8 +10,6 @@ register_sl_wrappers <- function() {
            "SL.poly.tmle", "predict.SL.poly.tmle", ".poly_design",
            "SL.poly2",     "SL.poly3",
            "SL.nnet.tmle", "predict.SL.nnet.tmle")
-  # Look the wrappers up in this file's own environment rather than the caller's,
-  # so registration does not depend on where it happens to be called from.
   src <- environment(register_sl_wrappers)
   for (nm in nms) assign(nm, get(nm, envir = src), envir = globalenv())
   invisible(nms)
@@ -19,11 +17,6 @@ register_sl_wrappers <- function() {
 
 ## XGboost covers non-linearities and interactions, even in contexts with n>p
 SL.xgboost.tmle <- function(Y, X, newX, family, ...) {
-  # UKHLS .dta columns keep their Stata `label`/`format.stata` attributes through
-  # mice::complete(), and xgboost 3.x rejects such a vector ("Passed 'y' object
-  # with unsupported class"). tmle() strips them before the Q/g models see Y, but
-  # estimate_cate() calls SuperLearner directly on the raw column, where the
-  # failure is silent -- SuperLearner just drops the learner with weight 0.
   Y <- as.numeric(Y)
   if (!all(Y %in% c(0, 1))) family <- gaussian()
   SuperLearner::SL.xgboost(Y = Y, X = X, newX = newX, family = family, ...)
