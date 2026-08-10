@@ -8,8 +8,7 @@ fit_tmle_one <- function(wide_mids, imp_idx, sl_libs, outcome, gbound = NULL) {
       length(imp_idx) == 1L
   )
   # Assign custom SL wrappers to globalenv() so SuperLearner resolves them on each batchtools worker.
-  assign("SL.xgboost.tmle", SL.xgboost.tmle, envir = globalenv())
-#  assign("SL.glmnet.tmle",  SL.glmnet.tmle,  envir = globalenv())
+  register_sl_wrappers()
 
   # Confounders (W), all measured pre-exposure. Shared with estimate_cate()
   # via R/confounders.R -- do not inline a copy here.

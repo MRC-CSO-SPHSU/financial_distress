@@ -74,9 +74,7 @@ estimate_cate <- function(wide_mids, imp_idx, sl_libs, outcome,
 
   # SuperLearner resolves learner names by string against globalenv() on fresh
   # batchtools workers 
-
-  assign("SL.xgboost.tmle", SL.xgboost.tmle, envir = globalenv())
-#  assign("SL.glmnet.tmle",  SL.glmnet.tmle,  envir = globalenv())
+  register_sl_wrappers()
 
   ## -- 3.1 complete data call -----------------------------------------------
   dat <- mice::complete(wide_mids, action = imp_idx)
