@@ -84,7 +84,7 @@ outcome_scale <- list(outcome = c("MCS", "PCS"))
 
 ## SuperLearner library for the TMLE Q- and g-models. SL.xgboost.tmle is the
 ## custom wrapper in R/sl_wrappers.R (re-scaled outcome (0,1) handling).
-sl_libs <- c("SL.mean", "SL.glm", "SL.gam", "SL.nnet", "SL.xgboost.tmle")
+sl_libs <- c("SL.mean", "SL.glm", "SL.gam", "SL.xgboost.tmle")
 
 # ------------------------------- DAG -----------------------------------
 # ---- Loop for each outcome scale (MCS, PCS) using static branching ----
