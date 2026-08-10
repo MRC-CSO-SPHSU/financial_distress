@@ -5,25 +5,31 @@
 # loggedEvents and carries on silently, which is precisely the attenuation this
 # change exists to prevent.
 
-assert_congenial_terms <- function(mids, a_col = "econ_dist_bin_0") {
+assert_congenial_terms <- function(mids, a_col, y_col) {
   le <- mids$loggedEvents
   if (is.null(le) || !is.data.frame(le) || nrow(le) == 0L) return(invisible(TRUE))
   if (!"out" %in% names(le)) return(invisible(TRUE))
 
-  is_interaction <- grepl(a_col, le$out, fixed = TRUE) &
-                    grepl(":",   le$out, fixed = TRUE)
-  
-  if (any(is_interaction)) {
-    stop("run_mice: congeniality broken -- mice dropped ", sum(is_interaction),
-         " exposure-interaction term(s) from the imputation model:\n",
-         paste(utils::capture.output(print(le[is_interaction, , drop = FALSE])),
-               collapse = "\n"),
-         "\n\nFall back to the additive form 'A * (sex + race + hiqual)' ",
-         "(design 8.4 rung 2) and state in the paper that the imputation model is ",
-         "congenial for the additive part of heterogeneity only.")
-  }
+  keys <- c(a_col, y_col)
 
-  invisible(TRUE)
+  dropped <- purrr::map(strsplit(le$out, ",\\s*"), \(tm) {
+    purrr::keep(trimws(tm), \(term)
+      grepl(":", term, fixed = TRUE) &&
+        any(purrr::map_lgl(keys, \(k) grepl(k, term, fixed = TRUE))))
+  })
+
+  wipeout <- grepl("All predictors are constant", le$out, fixed = TRUE)
+
+  bad <- lengths(dropped) > 0L | wipeout
+  if (!any(bad)) return(invisible(TRUE))
+
+  stop("run_mice: congeniality broken -- mice dropped ", sum(lengths(dropped)),
+       " exposure-interaction term(s) across ", sum(bad), " logged event(s)",
+       if (any(wipeout)) " (including a full-predictor wipeout)" else "", ":\n",
+       paste(utils::capture.output(print(le[bad, , drop = FALSE])), collapse = "\n"),
+       "\n\nFall back to the additive form 'A * (sex + race + hiqual)' ",
+       "(design 8.4 rung 2) and state in the paper that the imputation model is ",
+       "congenial for the additive part of heterogeneity only.")
 }
 
 run_mice <- function(wide_data, m = 10, maxit = 10, seed = 20260522,
@@ -82,9 +88,9 @@ run_mice <- function(wide_data, m = 10, maxit = 10, seed = 20260522,
   form_list[[y_col]] <- stats::update.formula(
     form_list[[y_col]], stats::reformulate(c(".", paste(a_col, "*", S)))
   )
-  # A model: saturated only in S
+  # A model: saturated in S and A
   form_list[[a_col]] <- stats::update.formula(
-    form_list[[a_col]], stats::reformulate(c(".", S))
+    form_list[[a_col]], stats::reformulate(c(".", paste(y_col, "*", S)))
   )
 
   mids <-  mice::mice(
@@ -104,9 +110,8 @@ run_mice <- function(wide_data, m = 10, maxit = 10, seed = 20260522,
     message(paste(utils::capture.output(print(le)), collapse = "\n"))
   }
 
-  # Hard gate: a dropped A-interaction silently reintroduces the homogeneity
-  # assumption this whole change removes.
-  assert_congenial_terms(mids, a_col = a_col)
+  # Confirming that the interaction terms are still present in the imputation model
+  assert_congenial_terms(mids, a_col = a_col, y_col = y_col)
 
   mids
 }
