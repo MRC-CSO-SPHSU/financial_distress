@@ -41,6 +41,55 @@ test_that("build_data produces expected output", {
   expect_true(all(expected_cols %in% names(wide_data)))
 })
 
+### make_counterfactual_method: methods gFormulaImpute() draws the synthetic block with.
+### Synthetic frame, so this runs without the raw .dta files.
+test_that("make_counterfactual_method covers every column and keeps factors categorical", {
+  source(here::here("R", "helpers.R"))
+
+  wide <- data.frame(
+    sex_dv_base         = factor(c("Female", "Male")),                    # complete
+    hiqual_dv_fact_base = factor(c("High", "Medium"),
+                                 levels = c("High", "Medium", "Low")),    # >2 levels
+    sf12mcs_dv_base     = c(40, 60),                                      # complete numeric
+    gor_dv_fact_0       = factor(c("R1", "R2"), levels = paste0("R", 1:12)),
+    econ_dist_bin_0     = factor(c("0", "1")),                            # exposure
+    pcs_lagged_0        = c(45, NA),
+    sf12mcs_dv_0        = c(NA, 55)
+  )
+  wide <- set_exposure(wide, exposure = econ_dist_bin)
+
+  method <- make_counterfactual_method(wide)
+
+  # gFormulaImpute() appends regime = "" and hands this straight to mice, whose
+  # check.method() indexes by name and blanks by position: one entry per column,
+  # in column order.
+  expect_equal(names(method), names(wide))
+
+  # treatment is set from the regime, never imputed
+  expect_equal(unname(method["econ_dist_bin_0"]), "")
+
+  # every other column must be drawable: the synthetic block is all NA, so a ""
+  # here would leave the column missing in the counterfactual population. This
+  # is what the all-NA probe row inside the function buys.
+  expect_false(any(method[setdiff(names(wide), "econ_dist_bin_0")] == ""))
+
+  # pmm, not gFormulaMI's default unbounded "norm", for the continuous nodes
+  expect_equal(unname(method[c("sf12mcs_dv_0", "pcs_lagged_0")]), c("pmm", "pmm"))
+
+  # >2-level factors must NOT be pmm: pmm regresses the integer level codes and,
+  # under gFormulaImpute's maxit = 1, collapses the synthetic marginal onto a
+  # few donors (levels have gone missing entirely).
+  expect_equal(unname(method[c("hiqual_dv_fact_base", "gor_dv_fact_0")]),
+               c("polyreg", "polyreg"))
+  expect_equal(unname(method["sex_dv_base"]), "logreg")
+
+  # a wide frame that never went through set_exposure() fails loudly rather than
+  # silently letting the treatment column be imputed from a model
+  bare <- wide
+  attr(bare, "exposure_vars") <- NULL
+  expect_error(make_counterfactual_method(bare), "exposure_vars")
+})
+
 ### does run_mice not crash and generate mids object with expected variables
 #### also if new make_counterfactual_matrix works fine
 test_that("run_mice produces expected output", {
@@ -351,6 +400,42 @@ test_that("SuperLearner $Z is out-of-fold, input-row-ordered and nameless", {
   # the hard-assertion wrapper: right length through, wrong length stops
   expect_length(sl_oof_predictions(fit, n, "test"), n)
   expect_error(sl_oof_predictions(fit, n - 1, "test"), "rows")
+
+  # NNLS combines linearly, so here the wrapper *is* Z %*% coef
+  expect_equal(sl_oof_predictions(fit, n, "test"),
+               drop(fit$Z %*% fit$coef), tolerance = 1e-12)
+})
+
+test_that("sl_oof_predictions combines on the fit's own method scale", {
+  source(here::here("R", "meta_learner.R"))
+
+  set.seed(104)
+  n <- 300
+  X <- data.frame(x1 = rnorm(n), x2 = rnorm(n))
+  A <- rbinom(n, 1, plogis(1.2 * X$x1 - 0.8 * X$x2))
+  gm <- SuperLearner::SuperLearner(
+    Y = A, X = X, family = binomial(),
+    SL.library = c("SL.mean", "SL.glm", "SL.glm.interaction"),
+    method = "method.NNloglik", cvControl = list(V = 5))
+
+  # method.NNloglik combines on the logit scale, NOT Z %*% coef. Force a split
+  # weight vector: the fitted ensemble often collapses onto one learner, where
+  # the two formulas coincide and the regression would not bite.
+  gm$coef <- stats::setNames(c(0.4, 0.3, 0.3), names(gm$coef))
+
+  # trim must come from $control (default 0.001), not trimLogit()'s own 1e-5
+  expect_equal(
+    sl_oof_predictions(gm, n, "g"),
+    drop(stats::plogis(
+      SuperLearner::trimLogit(gm$Z, trim = gm$control$trimLogit) %*% gm$coef)),
+    tolerance = 1e-12
+  )
+  # and that this is materially different from the linear mix
+  expect_gt(max(abs(sl_oof_predictions(gm, n, "g") - drop(gm$Z %*% gm$coef))), 0.01)
+
+  # an all-zero weight vector stops instead of silently returning zeros
+  gm$coef <- stats::setNames(c(0, 0, 0), names(gm$coef))
+  expect_error(sl_oof_predictions(gm, n, "g"), "coefficient")
 })
 
 ### toy generators for the DR-learner tests (used by the estimate_cate,
@@ -687,33 +772,144 @@ test_that("sanitize_factor_levels keeps full level sets on a zero-row frame", {
   expect_equal(levels(out$dnc_lagged), c("One", "X2.", "Zero"))
 })
 
-### assert_congenial_terms: stop() (not message()) when an A-interaction is dropped
-test_that("assert_congenial_terms stops when an exposure interaction term is dropped", {
+### ---- assert_congenial_terms ---------------------------------------------
+### mids$loggedEvents$out is a *display* string, not a data structure:
+### mice:::remove.lindep() collapses every predictor it drops for one
+### (it, im, dep) into a single comma-joined `out`. Anything checking it
+### programmatically has to re-parse it per term, and has to cope with the two
+### exits where remove.lindep names no term at all.
+
+# minimal one-row loggedEvents in mice's own column layout
+logged_event <- function(out, dep = "sf12mcs_dv_0", meth = "collinear") {
+  list(loggedEvents = data.frame(it = 1L, im = 1L, dep = dep, meth = meth,
+                                 out = out, stringsAsFactors = FALSE))
+}
+
+test_that("assert_congenial_terms requires both node names", {
   source(here::here("R", "run_mice.R"))
 
-  dropped <- list(loggedEvents = data.frame(
-    it = 1L, im = 1L, dep = "sf12mcs_dv_0", meth = "pmm",
-    out = "econ_dist_bin_01:race_baseNon.white",
-    stringsAsFactors = FALSE
-  ))
-  expect_error(assert_congenial_terms(dropped), "congenial")
+  # No defaults: a_col/y_col are always resolved by the caller, so a default
+  # exists only to be silently wrong on a wave whose suffix is not _0.
+  expect_error(
+    assert_congenial_terms(logged_event("econ_dist_bin_01:race_baseNon.white"),
+                           a_col = "econ_dist_bin_0"),
+    "y_col"
+  )
+  expect_error(
+    assert_congenial_terms(logged_event("econ_dist_bin_01:race_baseNon.white"),
+                           y_col = "sf12mcs_dv_0"),
+    "a_col"
+  )
+})
+
+test_that("assert_congenial_terms stops when the Y model drops an A:S interaction", {
+  source(here::here("R", "run_mice.R"))
+
+  err <- expect_error(
+    assert_congenial_terms(logged_event("econ_dist_bin_01:race_baseNon.white",
+                                        dep = "sf12mcs_dv_0"),
+                           a_col = "econ_dist_bin_0", y_col = "sf12mcs_dv_0"),
+    "congenial"
+  )
+  # the dropped term must appear in the message -- deciding rung 1 vs rung 2
+  # needs to know *which* term went
+  expect_true(grepl("econ_dist_bin_01:race_baseNon.white",
+                    conditionMessage(err), fixed = TRUE))
+  expect_true(grepl("1 exposure-interaction term(s)",
+                    conditionMessage(err), fixed = TRUE))
+})
+
+test_that("assert_congenial_terms stops when the A model drops a Y:S interaction", {
+  source(here::here("R", "run_mice.R"))
+
+  # run_mice puts y_col * S in the A model, so a break there is logged under the
+  # OUTCOME name with dep = the exposure. Matching only on a_col misses it.
+  expect_error(
+    assert_congenial_terms(logged_event("sf12mcs_dv_0:sex_dv_baseMale",
+                                        dep = "econ_dist_bin_0"),
+                           a_col = "econ_dist_bin_0", y_col = "sf12mcs_dv_0"),
+    "congenial"
+  )
+})
+
+test_that("assert_congenial_terms counts dropped terms, not logged rows", {
+  source(here::here("R", "run_mice.R"))
+
+  err <- expect_error(
+    assert_congenial_terms(
+      logged_event(paste("econ_dist_bin_01:sex_dv_baseMale",
+                         "econ_dist_bin_01:race_baseNon.white",
+                         "econ_dist_bin_01:hiqual_dv_fact_baseLow",
+                         sep = ", ")),
+      a_col = "econ_dist_bin_0", y_col = "sf12mcs_dv_0"),
+    "congenial"
+  )
+  expect_true(grepl("3 exposure-interaction term(s)",
+                    conditionMessage(err), fixed = TRUE))
+})
+
+test_that("assert_congenial_terms catches remove.lindep's unnamed wipeout", {
+  source(here::here("R", "run_mice.R"))
+
+  # remove.lindep() gives up without naming any term when nothing survives.
+  # Every interaction went with it, but the message carries no ":" and no node
+  # name, so a term-name scan alone reports the run as clean.
+  expect_error(
+    assert_congenial_terms(
+      logged_event("All predictors are constant or have too high correlation."),
+      a_col = "econ_dist_bin_0", y_col = "sf12mcs_dv_0"),
+    "wipeout"
+  )
+})
+
+test_that("assert_congenial_terms ignores a main-effect drop sharing a row with an unrelated interaction", {
+  source(here::here("R", "run_mice.R"))
+
+  # The A main effect was dropped from some other variable's model, and an
+  # unrelated S:S term went with it. Matching the whole row for "a_col AND :"
+  # calls this an A-interaction drop and halts a run that is fine.
+  expect_true(
+    assert_congenial_terms(
+      logged_event("econ_dist_bin_0, sex_dv_baseMale:race_baseNon.white",
+                   dep = "log_income_0"),
+      a_col = "econ_dist_bin_0", y_col = "sf12mcs_dv_0")
+  )
+})
+
+test_that("assert_congenial_terms matches on the node names it is given, not on wave 0", {
+  source(here::here("R", "run_mice.R"))
+
+  # target_wave = 7 -> suffix _4. The guard must follow the names it is handed.
+  wave4 <- logged_event("econ_dist_bin_41:race_baseNon.white",
+                        dep = "sf12mcs_dv_4")
+  expect_error(
+    assert_congenial_terms(wave4, a_col = "econ_dist_bin_4", y_col = "sf12mcs_dv_4"),
+    "congenial"
+  )
+  # PCS resolves to a different outcome stem, same wave
+  expect_error(
+    assert_congenial_terms(logged_event("sf12pcs_dv_4:sex_dv_baseMale",
+                                        dep = "econ_dist_bin_4"),
+                           a_col = "econ_dist_bin_4", y_col = "sf12pcs_dv_4"),
+    "congenial"
+  )
 })
 
 test_that("assert_congenial_terms passes on clean or unrelated logged events", {
   source(here::here("R", "run_mice.R"))
 
-  expect_true(assert_congenial_terms(list(loggedEvents = NULL)))
+  A <- "econ_dist_bin_0"; Y <- "sf12mcs_dv_0"
+
+  expect_true(assert_congenial_terms(list(loggedEvents = NULL), A, Y))
   expect_true(assert_congenial_terms(
-    list(loggedEvents = data.frame(it = 0L, im = 0L, dep = "log_income_0",
-                                   meth = "pmm", out = "gor_dv_fact_0",
-                                   stringsAsFactors = FALSE))
-  ))
+    logged_event("gor_dv_fact_0", dep = "log_income_0", meth = "pmm"), A, Y))
   # a main-effect drop of the exposure itself is not an interaction drop
   expect_true(assert_congenial_terms(
-    list(loggedEvents = data.frame(it = 1L, im = 1L, dep = "sf12mcs_dv_0",
-                                   meth = "pmm", out = "econ_dist_bin_lagged_0",
-                                   stringsAsFactors = FALSE))
-  ))
+    logged_event("econ_dist_bin_lagged_0", meth = "pmm"), A, Y))
+  # ...and neither is a lagged-exposure interaction: econ_dist_bin_lagged_0 is a
+  # different node from the A node, even though it shares the stem
+  expect_true(assert_congenial_terms(
+    logged_event("econ_dist_bin_lagged_01:gor_dv_fact_0R2", meth = "pmm"), A, Y))
 })
 
 ### run_mice: formulas carry the saturated A x S interaction
