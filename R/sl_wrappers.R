@@ -1,4 +1,5 @@
 # Custom SuperLearner learners for the TMLE step.
+## XGboost covers non-linearities and interactions, even in contexts with n>p
 SL.xgboost.tmle <- function(Y, X, newX, family, ...) {
   if (!all(Y %in% c(0, 1))) family <- gaussian()
   SuperLearner::SL.xgboost(Y = Y, X = X, newX = newX, family = family, ...)
