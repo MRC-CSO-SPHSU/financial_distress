@@ -26,16 +26,20 @@ make_wide <- function(df, id_col, time_col, base_cols, outcome, ..., static = FA
     dplyr::select(
 #      {{id_col}},
       {{base_cols}},
-      ends_with("0"),
-      ends_with("1"),
-      ends_with("2"),
-      ends_with("3"),
-      ends_with("4"),
-      ends_with("5"),
-      ends_with("6"),
-      ends_with("7"),
-      ends_with("8"),
-      ends_with("9")
+      ends_with("0"), # wave 2
+      ends_with("1"), # wave 3
+      ends_with("2"), # wave 4
+      ends_with("3"), # wave 5
+      ends_with("4"), # wave 6
+      ends_with("5"), # wave 7
+      ends_with("6"), # wave 8
+      ends_with("7"), # wave 9
+      ends_with("8"), # wave 10
+      ends_with("9"), # wave 11
+      ends_with("10"), # wave 12
+      ends_with("11"), # wave 13
+      ends_with("12"), # wave 14
+      ends_with("13") # wave 15
     )
 
   if (static) {
