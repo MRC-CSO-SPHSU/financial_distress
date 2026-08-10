@@ -45,11 +45,11 @@ run_mice <- function(wide_data, m = 10, maxit = 10, seed = 20260522,
     econ_benefits_lagged = "logreg",
     home_owner_lagged = "logreg",
     mastat_lagged = "logreg",
-    dnc_lagged = "polyreg",
+    dnc_lagged = "polr",
     econ_emp_bin_fact = "logreg",
     log_income = "pmm",       # continuous
     # Other confounders
-    gor_dv_fact = "polr",
+    gor_dv_fact = "polyreg",
     age_dv = "norm",
     # Exposure
     econ_dist_bin = "logreg",
