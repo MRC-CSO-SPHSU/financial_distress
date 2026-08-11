@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=fd_targets
-#SBATCH --time=24:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=96G
 #SBATCH --output=logs/targets_%j.out
