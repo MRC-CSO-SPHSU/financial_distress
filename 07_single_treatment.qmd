@@ -10,8 +10,7 @@ editor: source
 ---
 
 # Data
-Data comes from the UK Household Longitudinal Study (UKHLS), also known as Understanding Society. We use data from wave 15, which was collected from 2023 to 2025 as our analytical estimation
-sample of interest. Secondary analyses will include estimation in wave 3 (2011 -- 2013; closely after the 2008 economic shock) and wave 8 (2016 -- 2018; mid-point in the economic prosperity of the 2010s).
+Data comes from the UK Household Longitudinal Study (UKHLS), also known as Understanding Society. We use data from wave 15, which was collected from 2023 to 2025 as our analytical estimation sample of interest. Secondary analyses will include estimation in wave 3 (2011 -- 2013; closely after the 2008 economic shock) and wave 8 (2016 -- 2018; mid-point in the economic prosperity of the 2010s). This report focuses on the wave 3 analysis.
 
 ```{r setup}
 #| output: false
@@ -60,14 +59,14 @@ In this model, we include 1 wave of data (wave 3) and adjust for time-invariant 
 ```{r model1}
 #| echo: false
 #| include: true
-#| fig-cap: "Direct Acyclic Graph showing causal assumptions"
-#| fig-width: 8
-#| fig-height: 10
+#| fig-cap: "Direct Acyclic Graph showing causal assumptions. Note: dashed lines represents unobserved confounders."
+#| fig-width: 10
+#| fig-height: 12
 #| fig-align: center
 
 DiagrammeR::grViz("
                   digraph{
-                  graph[rankdir=LR]
+                  graph[rankdir=TB]
 
                   node[fontname=Arial]
                   TI [label=<<B><I>TI<SUB>cov</SUB></I></B>>]
@@ -77,7 +76,10 @@ DiagrammeR::grViz("
                   E [label=<<B><I>FD<SUB>t</SUB></I></B>>, 
                       fontcolor=deepskyblue4, 
                       color=deepskyblue4]
+                  E0 [label=<<B><I>FD<SUB>t-1</SUB></I></B>>]
                   Y0 [label=<<B><I>SF12<SUB>b</SUB></I></B>>]
+                  Yi [label=<<B><I>SF12<SUB>t-1</SUB></I></B>>,
+                      style=dashed]
                   Y1 [label=<<B><I>SF12<SUB>t</SUB></I></B>>,
                       fontcolor=darkorange2, 
                       color=darkorange2]
@@ -87,13 +89,15 @@ DiagrammeR::grViz("
                   Cl -> E, Y1, J
                   J -> I, E
                   I -> E, Y1
-                  Y0 -> Y1, Cl, E
+                  Y0 -> Yi, Cl, J
+                  Yi -> Y1
+                  E0 -> E, Yi, J
 
-                  {rank=min; E, TI}
-                  {rank=same; Y0}
+                  {rank=min; TI}
+                  {rank=same; E, E0}
                   {rank=same; Cl}
                   {rank=same; J, I}
-                  {rank=max; Y1}
+                  {rank=max; Y0, Yi, Y1}
             }
                   "
 )
@@ -140,7 +144,7 @@ bind_scales <- function(x, f = identity) {
 ```
 
 # Fit TMLE
-We fit a point-exposure TMLE: the exposure is financial distress (`econ_dist_bin_0`) and the outcome is an SF-12 component summary — mental (`sf12mcs_dv_0`) or physical (`sf12pcs_dv_0`), each estimated by its own pipeline. The table reports, pooled across imputations with Rubin's rules and in points on the scale named in each row, the two counterfactual means — mean SF-12 score if every person-wave were, versus were not, exposed to financial distress — and their contrast, the average causal effect.
+We fit a single-exposure TMLE: the exposure is financial distress (`econ_dist_bin_0`) and the outcome is an SF-12 component summary — mental (`sf12mcs_dv_0`) or physical (`sf12pcs_dv_0`). Each of these outcomes was estimated with their own set of confounders. The table reports, pooled across imputations with Rubin's rules and in points on the scale named in each row, the two counterfactual means, the marginal means and the average causal effect.
 
 ```{r fit-tmle}
 knitr::kable(
@@ -175,7 +179,7 @@ knitr::kable(
 )
 ```
 
-# Sensitivity 2: TMLE with gbound = 0.025
+# Sensitivity 2: TMLE with gbound = 0.025, to explore potential effect of positivity violations
 ```{r fit-tmle-gbound}
 knitr::kable(
   bind_scales(tmle_sens1_results),
@@ -278,11 +282,11 @@ ggsave(
 
 # Secondary analysis: effect measure modification by intersectional stratum (DR-learner)
 
-The marginal TMLE above gives one population-average effect. This section asks *for whom* the effect differs — additive-scale effect measure modification by intersectional social position — by estimating a **stratum-specific average causal effect** $\Delta_j$ for each of the 12 strata $j$ (sex × ethnicity × education):
+The marginal TMLE above gives one population-average effect. This section asks *for whom* the effect differs: additive-scale effect measure modification by intersectional social position. We estimate the *GATE* (group average treatment effect). The estimator consists in a **stratum-specific average causal effect** $\Delta_j$ for each of the 12 strata $j$ (sex × ethnicity × education):
 
 $$\Delta_j = E[\,Y^{a=1} - Y^{a=0} \mid S = j\,]$$
 
-$Y^{a=0}$ is the counterfactual SF-12 score had the person not been in financial distress and $Y^{a=1}$ the counterfactual outcome had they been in financial distress. Because the three stratum variables are already in the adjustment set $W$, conditioning on $S$ adds no identifiability assumption beyond the conditional exchangeability, positivity and consistency already required for the marginal effect. Each person's doubly robust pseudo-outcome is built from out-of-fold predictions of separately fitted SuperLearner models for the outcome regression and the propensity score, then averaged within stratum by a saturated regression on stratum indicators with heteroskedasticity-consistent (HC2; robust) standard errors. Estimates are pooled across imputations with Rubin's rules.
+$Y^{a=0}$ is the counterfactual SF-12 score had the person not been in financial distress and $Y^{a=1}$ the counterfactual outcome had they been in financial distress. Each person's doubly robust pseudo-outcome is built from out-of-fold predictions of separately fitted SuperLearner models for the outcome regression and the propensity score, then averaged within stratum by a regression on stratum indicators with heteroskedasticity-consistent (HC2; robust) standard errors. Estimates are pooled across imputations with Rubin's rules.
 
 ## Effects by stratum
 
@@ -304,11 +308,7 @@ gate |>
 ```
 
 ## Is the effect modification real?
-
-Three complementary answers: 
-- The Chernozhukov *best linear predictor* (BLP) coefficient $\beta_2$ (on the $Y^{a=1}-Y^{a=0}$ scale; $\beta_2 \neq 0$ means the between-stratum variation is systematic rather than sampling noise)
-- The omnibus Wald test of homogeneity $\Delta_1 = \dots = \Delta_{12}$ 
-- The marginal mean of the DR score against the sign-flipped TMLE average causal effect (as a diagnostic check).
+To asses this question, we included the Chernozhukov *best linear predictor* (BLP) coefficient $\beta_2$ (on the $Y^{a=1}-Y^{a=0}$ scale; $\beta_2 \neq 0$, which answer whether the between-stratum variation is systematic rather than sampling noise)
 
 ```{r cate-heterogeneity}
 #| output: true
@@ -316,9 +316,16 @@ bind_scales(cate_results, \(x) x$blp) |>
   knitr::kable(
     digits    = 3,
     col.names = c("Scale", "Term", "Estimate", "SE", "LL", "UL"),
-    caption = "BLP test for effect modification by SF-12 scale, pooled across imputations (HC3 robust SEs within imputation). beta1_ate is the population-average effect on the conventional $Y^{a=1} - Y^{a=0}$ scale and should sit near the TMLE average causal effect in magnitude; it is therefore opposite in sign to the marginal mean of the DR score (shown in the diagnostic check below), which is on the $Y^{a=0} - Y^{a=1}$ scale. beta2_hte ≠ 0 is evidence that the 12 strata genuinely differ."
+    caption = "BLP test for effect modification by SF-12 scale, pooled across imputations (HC3 robust SEs within imputation). beta1_ate is the population-average effect on the conventional $Y^{a=1} - Y^{a=0}$ scale and should sit near the TMLE average causal effect in magnitude. beta2_hte ≠ 0 is evidence that the 12 strata genuinely differ."
   )
+```
 
+```{r wald-test}
+#| output: false
+#| include: false
+#| eval: false
+
+## The omnibus Wald test of homogeneity $\Delta_1 = \dots = \Delta_{12}$ 
 wald <- bind_scales(cate_results, \(x) x$wald)
 
 stopifnot(
@@ -342,7 +349,12 @@ wald |>
 ```
 
 ```{r cate-sanity}
-#| output: true
+#| output: false
+#| include: false
+#| eval: false
+
+### Marginal mean of the DR score against the sign-flipped TMLE average causal effect (as a diagnostic check).
+
 # The TMLE row is sign-flipped onto the DR score's Y^{a=0} - Y^{a=1} scale, so
 # the two rows within a scale should agree; ll/ul swap places under the flip.
 tmle_ate <- bind_scales(tmle_results) |> filter(type == "ate")
@@ -376,7 +388,7 @@ bind_rows(
 #| output: true
 #| include: true
 #| eval: true
-#| fig-cap: "Stratum-specific average causal effect of financial distress on the SF-12 mental (MCS) and physical (PCS) component summaries (95% CI): positive values are points lost to distress. Dashed line represents that scale's marginal TMLE average causal effect."
+#| fig-cap: "Stratum-specific average causal effect of financial distress on the SF-12 mental (MCS) and physical (PCS) component summaries (95% CI). The estimates are represented in positive values, thus should be interpreted as points lost to distress. Dashed line represents that scale's marginal TMLE average causal effect."
 #| fig-width: 9
 #| fig-height: 4.5
 
@@ -412,8 +424,10 @@ ggsave(
 
 ```{r cate-thinnest}
 #| output: false
-
+#| include: false
+#| eval: false
 thin <- gate |> dplyr::slice_min(n_j_min, n = 1, with_ties = FALSE)
+
+# Three cautions bound this section. First, congeniality between the imputation model and a between-stratum contrast is improved by the saturated $A \times S$ imputation terms but not exact — the exposure and outcome models used in the analysis are nonparametric in all of $W$. Second, the sparsest stratum (`r thin$scale`, n ≈ `r thin$n_j_min` at ~`r round(thin$pct_exposed)`% exposed) rests on roughly `r round(thin$n_j_min * thin$pct_exposed / 100)` exposed observations; its wide interval and its ĝ diagnostics keep that near-violation of positivity visible. Third, the 12 stratum-specific standard errors ignore the correlation across strata induced by the shared exposure and outcome model fits, as is conventional.
 ```
 
-Three cautions bound this section. First, congeniality between the imputation model and a between-stratum contrast is improved by the saturated $A \times S$ imputation terms but not exact — the exposure and outcome models used in the analysis are nonparametric in all of $W$. Second, the sparsest stratum (`r thin$scale`, n ≈ `r thin$n_j_min` at ~`r round(thin$pct_exposed)`% exposed) rests on roughly `r round(thin$n_j_min * thin$pct_exposed / 100)` exposed observations; its wide interval and its ĝ diagnostics keep that near-violation of positivity visible. Third, the 12 stratum-specific standard errors ignore the correlation across strata induced by the shared exposure and outcome model fits, as is conventional.
