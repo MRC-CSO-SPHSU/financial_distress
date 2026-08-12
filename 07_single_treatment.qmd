@@ -63,8 +63,9 @@ In this model, we include 1 wave of data (wave 3) and adjust for time-invariant 
 #| fig-width: 10
 #| fig-height: 12
 #| fig-align: center
+#| out-width: 90%
 
-DiagrammeR::grViz("
+dag_dot <- "
                   digraph{
                   graph[rankdir=TB]
 
@@ -100,7 +101,36 @@ DiagrammeR::grViz("
                   {rank=max; Y0, Yi, Y1}
             }
                   "
-)
+
+if (knitr::is_html_output()) {
+  DiagrammeR::grViz(dag_dot)
+} else {
+  # PDF and docx cannot embed the htmlwidget, so render the same DOT source to
+  # a file and include that: vector for LaTeX, raster for everything else.
+  ext <- if (knitr::is_latex_output()) "pdf" else "png"
+  dag_file <- here::here("figs", "dag", paste0("dag_single_treatment.", ext))
+  dir.create(dirname(dag_file), recursive = TRUE, showWarnings = FALSE)
+
+  if (requireNamespace("DiagrammeRsvg", quietly = TRUE) &&
+      requireNamespace("rsvg", quietly = TRUE)) {
+    dag_svg <- charToRaw(DiagrammeRsvg::export_svg(DiagrammeR::grViz(dag_dot)))
+    if (ext == "pdf") {
+      rsvg::rsvg_pdf(dag_svg, dag_file)
+    } else {
+      rsvg::rsvg_png(dag_svg, dag_file, width = 2000)
+    }
+  } else if (nzchar(Sys.which("dot"))) {
+    # Fallback for environments without librsvg: the graphviz CLI reads the
+    # same DOT, HTML-like labels included.
+    dot_file <- tempfile(fileext = ".dot")
+    writeLines(dag_dot, dot_file)
+    system2("dot", c(paste0("-T", ext), shQuote(dot_file), "-o", shQuote(dag_file)))
+  } else {
+    stop("Rendering the DAG outside HTML needs DiagrammeRsvg + rsvg, or graphviz `dot` on PATH.")
+  }
+
+  knitr::include_graphics(dag_file)
+}
 ```
 
 # Data preparation
