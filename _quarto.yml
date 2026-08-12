@@ -3,6 +3,7 @@ project:
 
 toc: true
 number-sections: true
+prefer-html: true
 
 format:
   html:
