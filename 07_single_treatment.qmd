@@ -323,7 +323,7 @@ bind_scales(cate_results, \(x) x$blp) |>
 ```{r wald-test}
 #| output: false
 #| include: false
-#| eval: false
+#| eval: true
 
 ## The omnibus Wald test of homogeneity $\Delta_1 = \dots = \Delta_{12}$ 
 wald <- bind_scales(cate_results, \(x) x$wald)
@@ -351,7 +351,7 @@ wald |>
 ```{r cate-sanity}
 #| output: false
 #| include: false
-#| eval: false
+#| eval: true
 
 ### Marginal mean of the DR score against the sign-flipped TMLE average causal effect (as a diagnostic check).
 
