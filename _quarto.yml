@@ -12,7 +12,7 @@ format:
     code-fold: true
     code-summary: "Show code"
   pdf:
-    latex-engine: xelatex
+    pdf-engine: xelatex
     documentclass: report
     margin-left: 30mm
     margin-right: 30mm
