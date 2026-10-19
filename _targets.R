@@ -1,8 +1,6 @@
-# _targets.R — pipeline orchestration for the FD analysis from the UKHLS.
-# Parallel backend: future + future.batchtools. The controller process running
-# tar_make_future() submits each worker target as its own SLURM job via the
-# slurm.tmpl template. When deployed in a local machine, it runs the analysis via future.callr.
-# which calls separate r sessions in the background to solve future calls.
+# _targets.R — pipeline orchestration for the financial distress analysis from the UKHLS data.
+# Parallel backend: future + future.batchtools.
+# See documentation for more details
 
 library(targets)
 library(tarchetypes)
