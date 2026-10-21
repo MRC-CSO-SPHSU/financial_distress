@@ -12,6 +12,7 @@ import_data <- function(force = FALSE) {
   
   library(data.table)
   library(haven)
+  library(purrr)
 
   waves <- letters[1:10]
 
@@ -21,7 +22,7 @@ import_data <- function(force = FALSE) {
                    "pns1pid", "pns2pid", "age_dv", "sex_dv", "gor_dv",
                    "depchl_dv", "intdaty_dv", "intdatm_dv", "intdatd_dv",
                    "mastat_dv", "nchild_dv", "ethn_dv")
-  indall <- rbindlist(lapply(seq_along(waves), function(i) {
+  indall <- rbindlist(map(seq_along(waves), function(i) {
     w <- waves[i]
 
     # build prefix names
@@ -45,7 +46,7 @@ import_data <- function(force = FALSE) {
   vars_indresp <- c("pidp", "hidp", "jbstat", "scsf1", "sclfsato",
                    "fimnlabgrs_dv", "fimnpen_dv", "finnow",
                    "hiqual_dv", "sf12mcs_dv", "sf12pcs_dv")
-  indresp <- rbindlist(lapply(seq_along(waves), function(i) {
+  indresp <- rbindlist(map(seq_along(waves), function(i) {
     w <- waves[i]
 
     ## build prefix names (scsf1 not available in wave 1)
@@ -66,7 +67,7 @@ import_data <- function(force = FALSE) {
 
   # loading variables from hhrep
   vars_hhrep <- c("hidp", "fihhmnsben_dv", "hsownd", "tenure_dv")
-  hhrep <- rbindlist(lapply(seq_along(waves), function(i) {
+  hhrep <- rbindlist(map(seq_along(waves), function(i) {
     w <- waves[i]
     ## build prefix names
     cols <- c(paste0(w, "_", c(vars_hhrep)))
@@ -82,7 +83,7 @@ import_data <- function(force = FALSE) {
 
   # loading variables from income
   vars_income <- c("pidp", "hidp", "frmnthimp_dv", "ficode")
-  income <- rbindlist(lapply(seq_along(waves), function(i) {
+  income <- rbindlist(map(seq_along(waves), function(i) {
     w <- waves[i]
     cols <- c("pidp", paste0(w, "_", setdiff(vars_income, "pidp")))
 
@@ -107,7 +108,7 @@ import_data <- function(force = FALSE) {
 
   ## collapse to one row per person-wave: sum income components
   income_collapsed <- income[,
-    lapply(.SD, \(x) sum(x, na.rm = TRUE)),
+    map(.SD, \(x) sum(x, na.rm = TRUE)),
     by = .(pidp, hidp, wave),
     .SDcols = c("inc_pp", "inc_tu", "inc_ma", "inc_fm", "inc_oth")
   ]
@@ -181,8 +182,14 @@ clean_data <- function(DT) {
   raw_data[, has_partner := fifelse(partnerid > 0 & !is.na(partnerid), 1L, 0L)]
 
   # dependent children dummy variable (1 if has dependent children, 0 if not)
-  raw_data[, depChild := fifelse(age_probe >= 0 & age_probe < age_max_dependent & (pns1pid > 0 | pns2pid > 0) & depchl_dv == 1, 1L, 0L)]
-  raw_data[, dnc := sum(depChild, na.rm = TRUE), by = .(wave, idhh)]
+  raw_data[, depChild := fcase(
+  age_probe >= age_max_dependent, 0L,                    # adults: never dependent
+  is.na(age_probe) | !depchl_dv %in% c(1:2), NA_integer_,   # unknown status
+  depchl_dv == 1 & (pns1pid > 0 | pns2pid > 0), 1L,
+  default = 0L
+  )]
+  raw_data[, dnc := sum(depChild), by = .(wave, idhh)]   # NA if any member unknown
+
   ## drop temporary depChild
   raw_data[, depChild := NULL]
 
@@ -291,7 +298,7 @@ clean_data <- function(DT) {
   # ---- YPNB: Gross personal non-benefit income ----
   # recode sentinel missing values (-9, -1 -> NA) before summing
   sentinel_cols <- c("fimnlabgrs_dv", "fimnpen_dv", "inc_pp", "inc_tu", "inc_ma", "inc_fm", "inc_oth")
-  raw_data[, (sentinel_cols) := lapply(.SD, \(x) fifelse(x < 0, NA_real_, x)), .SDcols = sentinel_cols]
+  raw_data[, (sentinel_cols) := map(.SD, \(x) fifelse(x < 0, NA_real_, x)), .SDcols = sentinel_cols]
 
   raw_data[, ypnb := rowSums(.SD, na.rm = TRUE), .SDcols = sentinel_cols]
   raw_data[, ypnb := fifelse(rowSums(!is.na(.SD)) == 0L, NA_real_, ypnb), .SDcols = sentinel_cols]
@@ -308,10 +315,18 @@ clean_data <- function(DT) {
   # ypnbsp is already in 2015 prices (copy of ypnb) - no second CPI division
 
   # ---- OECD modified equivalence scale (moecd_eq) ----
-  raw_data[, depChild_013  := fifelse(age_probe >= 0  & age_probe <= 13 & (pns1pid > 0 | pns2pid > 0) & depchl_dv == 1, 1L, 0L)]
-  raw_data[, depChild_1418 := fifelse(age_probe >= 14 & age_probe <= 18 & (pns1pid > 0 | pns2pid > 0) & depchl_dv == 1, 1L, 0L)]
-  raw_data[, dnc013  := sum(depChild_013,  na.rm = TRUE), by = .(wave, idhh)]
-  raw_data[, dnc1418 := sum(depChild_1418, na.rm = TRUE), by = .(wave, idhh)]
+  raw_data[, depChild_013  := fcase(age_probe >= 0 & age_probe <= 13, 0L,
+    is.na(age_probe) | !depchl_dv %in% c(1:2), NA_integer_,
+    depchl_dv == 1 & (pns1pid > 0 | pns2pid > 0), 1L,
+    default = 0L 
+    )]
+  raw_data[, depChild_1418 := fcase(age_probe >= 14 & age_probe <= 18, 0L,
+    is.na(age_probe) | !depchl_dv %in% c(1:2), NA_integer_,
+    depchl_dv == 1 & (pns1pid > 0 | pns2pid > 0), 1L,
+    default = 0L)
+  ]
+  raw_data[, dnc013  := sum(depChild_013), by = .(wave, idhh)]
+  raw_data[, dnc1418 := sum(depChild_1418), by = .(wave, idhh)]
   raw_data[, c("depChild_013", "depChild_1418") := NULL]
 
   raw_data[, moecd_eq := fcase(
@@ -449,8 +464,7 @@ clean_data <- function(DT) {
   raw_data[, gor_dv_fact := factor(gor_dv, levels = 1:12, labels = gor_labels)]
 
   # marital status (mastat_dv): recode to partnered (1) vs not partnered (0)
-  # negatives (-9 missing, -8 inapplicable, -2 refusal, -1 don't know) and
-  # 0 "Child under 16" -> NA (no adult marital status), then dropped.
+  # negatives and 0 "Child under 16" become NA (no adult marital status), then dropped.
   raw_data[mastat_dv < 0, mastat_dv := NA_integer_]
   ## partnered     = Married (2), Same-sex civil partnership (3), Living as couple (10)
   ## not partnered = Single/never married (1), Separated but legally married (4),
@@ -493,7 +507,7 @@ preproc_data <- function(DT) {
   if (!is.data.table(DT)) stop("Input must be a data.table")
 
   # ---- 1. Filter to working-age and select analysis columns ----
-  DT <- DT[age_dv >= 25 & age_dv <= 65]
+  DT <- DT[age_dv >= 25 & age_dv <= 64]
 
   cols_to_keep <- c("pidp", "wave",
                     "sf12mcs_dv", "sf12pcs_dv", "log_income",
@@ -510,7 +524,7 @@ preproc_data <- function(DT) {
   exp_data[is.na(response), response := 0L]
   setorder(exp_data, pidp, wave)
 
-  # impute slow-changing/time-invariant variables for synthetic (response=0) rows
+  # impute time-invariant variables for non-response rows (reponse = 0)
   exp_data[, sex_dv    := sex_dv[!is.na(sex_dv)][1L], by = pidp]          # time-invariant sex
   exp_data[, race      := race[!is.na(race)][1L],      by = pidp]          # time-invariant race
   exp_data[, hiqual_dv := hiqual_dv[!is.na(hiqual_dv)][1L], by = pidp]     # time-invariant highest qualification
@@ -523,32 +537,32 @@ preproc_data <- function(DT) {
   ), levels = c("High", "Medium", "Low"))]
 
   # ---- 3. Wave-1 baseline variable creation ----
-  base_cols <- c("pidp", "age_dv", "sex_dv", "gor_dv", "gor_dv_fact", "mastat_dv",
-                 "home_owner", "dnc", "hiqual_dv_fact", "race",
-                 "sf12mcs_dv", "sf12pcs_dv")
+#  base_cols <- c("pidp", "age_dv", "sex_dv", "gor_dv", "gor_dv_fact", "mastat_dv",
+#                 "home_owner", "dnc", "hiqual_dv_fact", "race",
+#                 "sf12mcs_dv", "sf12pcs_dv")
 
-  base_data <- exp_data[wave == 1L, ..base_cols]
+#  base_data <- exp_data[wave == 1L, ..base_cols]
 
   # rename all except pidp with _base suffix
-  setnames(base_data, setdiff(names(base_data), "pidp"),
-           paste0(setdiff(names(base_data), "pidp"), "_base"))
+#  setnames(base_data, setdiff(names(base_data), "pidp"),
+#           paste0(setdiff(names(base_data), "pidp"), "_base"))
 
   # expand to all waves: each person gets 10 rows (person-first order)
-  n_persons <- nrow(base_data)
-  base_data  <- base_data[rep(seq_len(n_persons), each = 10L)]
-  base_data[, wave := rep(1:10, times = n_persons)]
-  base_data[, t0   := wave - 1L]
+#  n_persons <- nrow(base_data)
+#  base_data  <- base_data[rep(seq_len(n_persons), each = 10L)]
+#  base_data[, wave := rep(1:10, times = n_persons)]
+#  base_data[, t0   := wave - 1L]
 
   # ---- 4. Join baseline with time-varying panel ----
-  pop_data <- merge(base_data, exp_data, by = c("pidp", "wave"), all.x = TRUE)
+#  pop_data <- merge(base_data, exp_data, by = c("pidp", "wave"), all.x = TRUE)
 
   # ---- 5. Recoding dnc to categorical variable ----
-  pop_data[, dnc_fact := factor(fcase(
-    is.na(dnc), NA_character_,
-    dnc == 0L,  "Zero",
-    dnc == 1L,  "One",
-    default    = "Two or more"
-  ), levels = c("Zero", "One", "Two or more"))]
+  pop_data <- exp_data[, dnc_fact := factor(fcase(
+                         is.na(dnc), NA_character_,
+                         dnc == 0L,  "Zero",
+                         dnc == 1L,  "One",
+                         default    = "Two or more"
+                        ), levels = c("Zero", "One", "Two or more"))]
   
   #--- Transforming econ_emp_bin into factor variable ----
   pop_data[, econ_emp_bin_fact := as.factor(econ_emp_bin)]
