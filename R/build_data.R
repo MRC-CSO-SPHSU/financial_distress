@@ -1,8 +1,23 @@
-build_data <- function(data, pre_wave = 2, target_wave = 3,
+build_data <- function(data, pre_wave = 2, target_wave = 3, base_wave = 1,
                        outcome = c("MCS", "PCS")) {
   library(dplyr)
 
   outcome <- match.arg(outcome)
+
+  # Baseline data generation: Baseline will change depending of the analytic window we choose
+  base_cols <- c("pipd", "sex_dv", "race", "hiqual_dv_fact", "sf12mcs_dv", "sf12pcs_dv")
+  DT_base <- data[wave == base_wave, ..base_cols]
+
+  setnames(DT_base, setdiff(names(DT_base), "pipd"),
+           paste0(setdiff(names(base_data), "pipd"), "_base"))
+  
+  # To match with long database format, add 10 rows to the baseline vars dataset
+  n_persons <- nrow(DT_base)
+  DT_base <- DT_base[rep(1:10, times = n_persons)]
+  DT_base[, t0 := wave - 1L]
+
+  # Joining baseline DT with long DT
+  data <- merge(DT_base, data, by = c("pipd", "wave"), all.x = TRUE)
 
   eligible_pidp <- intersect(
     data[wave == pre_wave & response == 1, pidp],
@@ -38,12 +53,10 @@ build_data <- function(data, pre_wave = 2, target_wave = 3,
   ][(base_na), pidp]
 
   final_data <- int_data_wide[!pidp %in% bad_pidps]
-
-  # The lag is taken before this point, so econ_dist_bin_lagged is still integer
-  # Factoring both so mice/gFormulaMI treat them as the same binary node type.
+  
+  # Formula-safe factor levels before reshaping. 
+  # Downstream code uses reformulate, which may conflict with some var labels
   final_data <- final_data |>
-    mutate(across(c(econ_dist_bin, econ_dist_bin_lagged), as.factor)) |>
-    # Formula-safe factor levels before reshaping
     sanitize_factor_levels()
 
   if (outcome == "MCS") {
