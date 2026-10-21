@@ -5,19 +5,20 @@ build_data <- function(data, pre_wave = 2, target_wave = 3, base_wave = 1,
   outcome <- match.arg(outcome)
 
   # Baseline data generation: Baseline will change depending of the analytic window we choose
-  base_cols <- c("pipd", "sex_dv", "race", "hiqual_dv_fact", "sf12mcs_dv", "sf12pcs_dv")
+  base_cols <- c("pidp", "wave", "sex_dv_fact", "race", "hiqual_dv_fact", "sf12mcs_dv", "sf12pcs_dv")
   DT_base <- data[wave == base_wave, ..base_cols]
 
-  setnames(DT_base, setdiff(names(DT_base), "pipd"),
-           paste0(setdiff(names(base_data), "pipd"), "_base"))
+  setnames(DT_base, setdiff(names(DT_base), c("pidp", "wave")),
+           paste0(setdiff(names(DT_base), c("pidp", "wave")), "_base"))
   
   # To match with long database format, add 10 rows to the baseline vars dataset
   n_persons <- nrow(DT_base)
-  DT_base <- DT_base[rep(1:10, times = n_persons)]
+  DT_base <- DT_base[rep(seq_len(n_persons), each = 10L)]
+  DT_base[, wave := rep(1:10, times = n_persons)]
   DT_base[, t0 := wave - 1L]
 
   # Joining baseline DT with long DT
-  data <- merge(DT_base, data, by = c("pipd", "wave"), all.x = TRUE)
+  data <- merge(DT_base, data, by = c("pidp", "wave"), all.x = TRUE)
 
   eligible_pidp <- intersect(
     data[wave == pre_wave & response == 1, pidp],
@@ -64,7 +65,7 @@ build_data <- function(data, pre_wave = 2, target_wave = 3, base_wave = 1,
     make_wide(
       pidp,
       t0,
-      base_cols = c(sex_dv_base,
+      base_cols = c(sex_dv_fact_base,
                     hiqual_dv_fact_base,
                     race_base,
                     sf12mcs_dv_base),
@@ -87,7 +88,7 @@ build_data <- function(data, pre_wave = 2, target_wave = 3, base_wave = 1,
       make_wide(
         pidp,
         t0,
-        base_cols = c(sex_dv_base,
+        base_cols = c(sex_dv_fact_base,
                       hiqual_dv_fact_base,
                       race_base,
                       sf12pcs_dv_base),
