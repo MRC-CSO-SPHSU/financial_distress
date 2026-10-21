@@ -187,14 +187,14 @@ sanitize_factor_levels <- function(df, skip = character()) {
   is_dt <- data.table::is.data.table(df)
   if (is_dt) df <- data.table::copy(df)   # never modify the caller's table by reference
 
-  fct_cols <- setdiff(names(df)[vapply(df, is.factor, logical(1L))], skip)
+  fct_cols <- setdiff(names(df)[purrr::map_lgl(df, is.factor)], skip)
 
   for (v in fct_cols) {
     lv <- levels(df[[v]])
     if (!any(grepl(hostile, lv))) next
     new_labels <- make.names(lv, unique = TRUE)
     new_v <- factor(new_labels[as.integer(df[[v]])],
-                     levels  = sort(unique(new_labels)),
+                     levels  = sort(new_labels),
                      ordered = is.ordered(df[[v]]))
     if (is_dt) data.table::set(df, j = v, value = new_v) else df[[v]] <- new_v
   }
