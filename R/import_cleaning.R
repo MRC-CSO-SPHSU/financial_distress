@@ -108,7 +108,7 @@ import_data <- function(force = FALSE) {
 
   ## collapse to one row per person-wave: sum income components
   income_collapsed <- income[,
-    map(.SD, \(x) sum(x, na.rm = FALSE)),
+    map(.SD, \(x) sum(x, na.rm = TRUE)),
     by = .(pidp, hidp, wave),
     .SDcols = c("inc_pp", "inc_tu", "inc_ma", "inc_fm", "inc_oth")
   ]
@@ -300,7 +300,7 @@ clean_data <- function(DT) {
   sentinel_cols <- c("fimnlabgrs_dv", "fimnpen_dv", "inc_pp", "inc_tu", "inc_ma", "inc_fm", "inc_oth")
   raw_data[, (sentinel_cols) := map(.SD, \(x) fifelse(x < 0, NA_real_, x)), .SDcols = sentinel_cols]
 
-  raw_data[, ypnb := rowSums(.SD, na.rm = FALSE), .SDcols = sentinel_cols]
+  raw_data[, ypnb := rowSums(.SD, na.rm = TRUE), .SDcols = sentinel_cols]
   raw_data[, ypnb := fifelse(rowSums(!is.na(.SD)) == 0L, NA_real_, ypnb), .SDcols = sentinel_cols]
   raw_data[ypnb < 0, ypnb := 0]
   raw_data[, ypnb := ypnb / cpi]   # deflate to 2015 prices
@@ -315,12 +315,12 @@ clean_data <- function(DT) {
   # ypnbsp is already in 2015 prices (copy of ypnb) - no second CPI division
 
   # ---- OECD modified equivalence scale (moecd_eq) ----
-  raw_data[, depChild_013  := fcase(age_probe >= 0 & age_probe <= 13, 0L,
+  raw_data[, depChild_013  := fcase(age_probe >= 0 & age_probe <= 13, 1L,
     is.na(age_probe) | !depchl_dv %in% c(1:2), NA_integer_,
     depchl_dv == 1 & (pns1pid > 0 | pns2pid > 0), 1L,
     default = 0L 
     )]
-  raw_data[, depChild_1418 := fcase(age_probe >= 14 & age_probe <= 18, 0L,
+  raw_data[, depChild_1418 := fcase(age_probe >= 14 & age_probe <= 18, 1L,
     is.na(age_probe) | !depchl_dv %in% c(1:2), NA_integer_,
     depchl_dv == 1 & (pns1pid > 0 | pns2pid > 0), 1L,
     default = 0L)
@@ -573,7 +573,7 @@ preproc_data <- function(DT) {
   pop_data[, sex_dv_fact := sex_dv]
 
   # ---- 5. Final column selection ----
-  final_cols <- c("pidp", "wave", "response",
+  final_cols <- c("pidp", "wave", "response", "race",
                   "sf12mcs_dv", "sf12pcs_dv", "log_income",
                   "econ_emp_bin", "econ_emp_bin_fact", "econ_dist", "econ_dist_bin", "econ_dist_bin_fact", "econ_benefits",
                   "gor_dv", "mastat_dv", "home_owner", "dnc", "dnc_fact", "age_dv",
