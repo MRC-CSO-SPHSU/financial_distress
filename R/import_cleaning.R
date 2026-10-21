@@ -108,7 +108,7 @@ import_data <- function(force = FALSE) {
 
   ## collapse to one row per person-wave: sum income components
   income_collapsed <- income[,
-    map(.SD, \(x) sum(x, na.rm = TRUE)),
+    map(.SD, \(x) sum(x, na.rm = FALSE)),
     by = .(pidp, hidp, wave),
     .SDcols = c("inc_pp", "inc_tu", "inc_ma", "inc_fm", "inc_oth")
   ]
@@ -300,7 +300,7 @@ clean_data <- function(DT) {
   sentinel_cols <- c("fimnlabgrs_dv", "fimnpen_dv", "inc_pp", "inc_tu", "inc_ma", "inc_fm", "inc_oth")
   raw_data[, (sentinel_cols) := map(.SD, \(x) fifelse(x < 0, NA_real_, x)), .SDcols = sentinel_cols]
 
-  raw_data[, ypnb := rowSums(.SD, na.rm = TRUE), .SDcols = sentinel_cols]
+  raw_data[, ypnb := rowSums(.SD, na.rm = FALSE), .SDcols = sentinel_cols]
   raw_data[, ypnb := fifelse(rowSums(!is.na(.SD)) == 0L, NA_real_, ypnb), .SDcols = sentinel_cols]
   raw_data[ypnb < 0, ypnb := 0]
   raw_data[, ypnb := ypnb / cpi]   # deflate to 2015 prices
@@ -392,6 +392,8 @@ clean_data <- function(DT) {
     econ_dist %in% 4:5, 1L,
     default = NA_integer_
   )]
+
+  raw_data[, econ_dist_bin_fact := as.factor(econ_dist_bin)]
 
   ####### Final modfications and recodes ########
 
@@ -511,7 +513,7 @@ preproc_data <- function(DT) {
 
   cols_to_keep <- c("pidp", "wave",
                     "sf12mcs_dv", "sf12pcs_dv", "log_income",
-                    "econ_emp_bin", "econ_dist", "econ_dist_bin", "econ_benefits", "gor_dv_fact",
+                    "econ_emp_bin", "econ_dist", "econ_dist_bin", "econ_dist_bin_fact", "econ_benefits", "gor_dv_fact",
                     "gor_dv", "mastat_dv", "home_owner", "dnc", "age_dv",
                     "race", "sex_dv", "hiqual_dv", "econ_emp", "econ_emp_bin_narrow")
 
@@ -571,13 +573,11 @@ preproc_data <- function(DT) {
   pop_data[, sex_dv_fact := sex_dv]
 
   # ---- 5. Final column selection ----
-  final_cols <- c("pidp", "wave", "response", "t0",
+  final_cols <- c("pidp", "wave", "response",
                   "sf12mcs_dv", "sf12pcs_dv", "log_income",
-                  "econ_emp_bin", "econ_emp_bin_fact", "econ_dist", "econ_dist_bin", "econ_benefits",
+                  "econ_emp_bin", "econ_emp_bin_fact", "econ_dist", "econ_dist_bin", "econ_dist_bin_fact", "econ_benefits",
                   "gor_dv", "mastat_dv", "home_owner", "dnc", "dnc_fact", "age_dv",
-                  "age_dv_base", "sex_dv_fact", "sex_dv_base", "gor_dv_base", "mastat_dv_base",
-                  "home_owner_base", "dnc_base", "hiqual_dv_fact", "hiqual_dv_fact_base", "race_base",
-                  "sf12mcs_dv_base", "sf12pcs_dv_base", "gor_dv_fact_base", "gor_dv_fact")
+                  "sex_dv_fact", "hiqual_dv_fact", "gor_dv_fact")
 
   pop_data[, ..final_cols]
 } 
