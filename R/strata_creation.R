@@ -1,6 +1,6 @@
 # Intersectional strata (sex x race x education) for the DR-learner GATE arm.
 make_strata <- function(df) {
-  needed <- c("sex_dv_base", "race_base", "hiqual_dv_fact_base")
+  needed <- c("sex_dv_fact_base", "race_base", "hiqual_dv_fact_base")
   missing_cols <- setdiff(needed, names(df))
   if (length(missing_cols)) {
     stop("make_strata: missing stratum column(s): ",

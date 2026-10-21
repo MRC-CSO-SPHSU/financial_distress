@@ -2,7 +2,7 @@
 
 confounders <- function(outcome = c("MCS", "PCS")) {
   outcome <- match.arg(outcome)
-  c("sex_dv_base",
+  c("sex_dv_fact_base",
     "hiqual_dv_fact_base",
     "race_base",
     if (outcome == "MCS") "sf12mcs_dv_base" else "sf12pcs_dv_base",

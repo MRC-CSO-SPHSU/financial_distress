@@ -41,7 +41,7 @@ run_mice <- function(wide_data, m = 10, maxit = 10, seed = 20260522,
 
   methods_by_group <- c(
     # Time-invariant confounders
-    sex_dv_base = "logreg",
+    sex_dv_fact_base = "logreg",
     hiqual_dv_fact_base = "polr",
     race_base = "logreg",
     # Lagged confounders
@@ -75,7 +75,7 @@ run_mice <- function(wide_data, m = 10, maxit = 10, seed = 20260522,
 
   y_col <- if (outcome == "MCS") "sf12mcs_dv_0" else "sf12pcs_dv_0"  # wave-3 outcome only
   a_col <- "econ_dist_bin_0"
-  S     <- "sex_dv_base * race_base * hiqual_dv_fact_base"
+  S     <- "sex_dv_fact_base * race_base * hiqual_dv_fact_base"
 
   stopifnot(all(c(y_col, a_col) %in% names(wide_data)))
 
