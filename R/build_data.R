@@ -18,7 +18,7 @@ build_data <- function(data, pre_wave = 2, target_wave = 3, base_wave = 1,
   DT_base[, t0 := wave - 1L]
 
   # Joining baseline DT with long DT
-  data <- merge(DT_base[!"wave"], data, by = c("pidp"))
+  data <- merge(DT_base[, !"wave"], data, by = c("pidp"))
 
   eligible_pidp <- intersect(
     data[wave == pre_wave & response == 1, pidp],
