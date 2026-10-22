@@ -203,7 +203,9 @@ list(
       import_data(force = FALSE) |> clean_data() |> preproc_data()
     } else {
       import_data(force = TRUE) |> clean_data() |> preproc_data()
-    }
+    },
+    cue = tar_cue(mode = "always"),
+    description = "Data importing and formatting"
   ),
 
   # Imputation index, shared by both outcome scales
