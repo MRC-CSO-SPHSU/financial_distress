@@ -14,7 +14,7 @@ import_data <- function(force = FALSE) {
   library(haven)
   library(purrr)
 
-  waves <- letters[1:10]
+  waves <- letters[1:13]
 
   # loading variables from indall
   ## variables to keep
@@ -292,7 +292,9 @@ clean_data <- function(DT) {
   # CPI for inflation adjustment
   cpi_lookup <- c("2009" = 0.879, "2010" = 0.901, "2011" = 0.936, "2012" = 0.960,
                   "2013" = 0.982, "2014" = 0.996, "2015" = 1.000, "2016" = 1.010,
-                  "2017" = 1.036, "2018" = 1.060, "2019" = 1.078, "2020" = 1.089)
+                  "2017" = 1.036, "2018" = 1.060, "2019" = 1.078, "2020" = 1.089,
+                  "2021" = 1.116, "2022" = 1.205, "2023" = 1.286, "2024" = 1.329,
+                  "2025" = 1.329)
   raw_data[, cpi := cpi_lookup[as.character(intdaty_dv)]]
 
   # ---- YPNB: Gross personal non-benefit income ----
@@ -521,7 +523,7 @@ preproc_data <- function(DT) {
   DT[, response := 1L]
 
   # ---- 2. Expand to balanced panel (all pidp x wave combinations) ----
-  grid     <- CJ(pidp = unique(DT$pidp), wave = 1:10)
+  grid     <- CJ(pidp = unique(DT$pidp), wave = sort(unique(DT$wave)))
   exp_data <- merge(grid, DT, by = c("pidp", "wave"), all.x = TRUE)
   exp_data[is.na(response), response := 0L]
   setorder(exp_data, pidp, wave)

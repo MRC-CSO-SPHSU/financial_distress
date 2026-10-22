@@ -18,7 +18,7 @@ build_data <- function(data, pre_wave = 2, target_wave = 3, base_wave = 1,
   DT_base[, t0 := wave - 1L]
 
   # Joining baseline DT with long DT
-  data <- merge(DT_base, data, by = c("pidp", "wave"), all.x = TRUE)
+  data <- merge(DT_base[!"wave"], data, by = c("pidp"))
 
   eligible_pidp <- intersect(
     data[wave == pre_wave & response == 1, pidp],
@@ -30,7 +30,7 @@ build_data <- function(data, pre_wave = 2, target_wave = 3, base_wave = 1,
   data.table::setorder(pop_DT, pidp, wave)
 
   int_data_wide <- pop_DT[
-      , `:=`(t0 = t0 - 2L,
+      , `:=`(t0 = wave - as.integer(target_wave),
              pcs_lagged = shift(sf12pcs_dv, type = "lag"),
              mcs_lagged = shift(sf12mcs_dv, type = "lag"),
              dnc_lagged = shift(dnc_fact, type = "lag"),
@@ -41,8 +41,6 @@ build_data <- function(data, pre_wave = 2, target_wave = 3, base_wave = 1,
             ),
         by = pidp
     ][wave %in% target_wave]
-
-  t0_target <- target_wave - 3L
 
   # Drop pidps with no usable MCS/PCS: baseline missing
   outcome_col <- if (outcome == "MCS") "sf12mcs_dv" else "sf12pcs_dv"

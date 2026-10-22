@@ -61,24 +61,31 @@ tar_option_set(
     "quarto"
   ),
   format = "rds",
-  seed   = 42
+  seed   = 20261022
 )
 
-# ---- Source extracted functions (R/) ----
-for (f in c(list.files("R", "\\.R$", full.names = TRUE))) source(f)
+# ---- Sourcing functions (R/) ----
+for (f in c(list.files("R", "\\.R$", full.names = TRUE))) source(f); rm(f)
 
 # --------------------- Configuration -------------------------
 ## mice configs
 mice_m      <- 50
-mice_maxit  <- 15
-seed_random <- 42
+mice_maxit  <- 20
+seed_random <- 20261022
 ## gFormulaMI configs
 gform_M <- 50
 cate_gbound <- 0.001 # non-aggressive, symmetric bounding
 tmle_bound <- 0.001 # non-aggressive symmetric bounding
-## Outcome scale for the whole pipeline: "MCS" or "PCS"
-outcome_scale <- list(outcome = c("MCS", "PCS"))
 
+## Analytical samples for the whole pipeline and outcomes
+
+specs <- tidyr::expand_grid(
+  tibble::tibble(label = c("w3", "w8", "w13"),
+  target_wave = c(3L, 8L, 13L),
+  pre_wave = c(2L, 7L, 12L),
+  base_wave = c(1L, 6L, 11L)),
+  outcome = c("MCS", "PCS")
+)
 
 ## SuperLearner library for the TMLE Q- and g-models. SL.xgboost.tmle is the
 ## custom wrapper in R/sl_wrappers.R (re-scaled outcome (0,1) handling).
@@ -88,19 +95,20 @@ sl_libs <- c("SL.mean", "SL.glm", "SL.poly2", "SL.poly3", "SL.gam",
 # ------------------------------- DAG -----------------------------------
 # ---- Loop for each outcome scale (MCS, PCS) using static branching ----
 map_pipe <- tar_map(
-  values = outcome_scale,
-  names  = outcome,
-
+  values = specs,
+  names  = c(label, outcome),
   tar_target(wide_data,
-             build_data(pop_data, outcome = outcome)),
-
+             build_data(pop_data, 
+                        outcome = outcome,
+                        pre_wave = pre_wave,
+                        target_wave = target_wave,
+                        base_wave = base_wave)),
   tar_target(wide_mids,
              run_mice(wide_data,
                       m       = mice_m,
                       maxit   = mice_maxit,
                       seed    = seed_random,
                       outcome = outcome)),
-
   tar_target(
     tmle_one,
     fit_tmle_one(
@@ -202,6 +210,9 @@ list(
   tar_target(tmle_imp_idx, seq_len(mice_m)),
 
   map_pipe,
+
+  tar_combine(tmle_results_all, map_pipe[["tmle_results"]],
+              command = dplyr::bind_rows(!!!.x, .id = "target")),
 
   # Single report covering both outcomes
   tarchetypes::tar_quarto(report, "07_single_treatment.qmd")
