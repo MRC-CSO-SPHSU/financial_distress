@@ -37,7 +37,7 @@ _targets/
 crew-*.log
 
 # local file for tranfering data to the cluster
-upload_data.sh
+update.sh
 
 #vscode env files
 .vscode
