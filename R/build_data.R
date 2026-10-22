@@ -11,14 +11,14 @@ build_data <- function(data, pre_wave = 2, target_wave = 3, base_wave = 1,
   setnames(DT_base, setdiff(names(DT_base), c("pidp", "wave")),
            paste0(setdiff(names(DT_base), c("pidp", "wave")), "_base"))
   
-  # To match with long database format, add 10 rows to the baseline vars dataset
+  # To match with long database format, add 13 rows to the baseline vars dataset
   n_persons <- nrow(DT_base)
-  DT_base <- DT_base[rep(seq_len(n_persons), each = 10L)]
-  DT_base[, wave := rep(1:10, times = n_persons)]
+  DT_base <- DT_base[rep(seq_len(n_persons), each = 13L)]
+  DT_base[, wave := rep(1:13, times = n_persons)]
   DT_base[, t0 := wave - 1L]
 
   # Joining baseline DT with long DT
-  data <- merge(DT_base[!"wave"], data, by = c("pidp"))
+  data <- merge(DT_base[, !"wave"], data, by = c("pidp"))
 
   eligible_pidp <- intersect(
     data[wave == pre_wave & response == 1, pidp],
@@ -79,7 +79,7 @@ build_data <- function(data, pre_wave = 2, target_wave = 3, base_wave = 1,
       mastat_lagged,
       econ_emp_bin_fact,
       log_income,
-      waves = t0_target
+      waves = 0L
     ) |> data.table::as.data.table()
   } else if (outcome == "PCS") {
     wide_data <- final_data |>
@@ -102,7 +102,7 @@ build_data <- function(data, pre_wave = 2, target_wave = 3, base_wave = 1,
         mastat_lagged,
         econ_emp_bin_fact,
         log_income,
-        waves = t0_target
+        waves = 0L
       ) |> data.table::as.data.table()
   }
   
